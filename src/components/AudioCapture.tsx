@@ -4,6 +4,7 @@ import { useWhisper } from '../hooks/useWhisper'
 interface AudioCaptureProps {
   onTranscription: (text: string) => void
   onSummarize: (text: string) => void
+  onTranslate: (text: string) => void
   isConnected: boolean
   settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number }
 }
@@ -65,7 +66,7 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
  *
  * Flow: Audio source → Raw PCM → Whisper (main process) → Text → Ollama
  */
-export function AudioCapture({ onTranscription, onSummarize, isConnected, settings }: AudioCaptureProps) {
+export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConnected, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
   const [errorMsg, setErrorMsg] = useState('')
@@ -326,6 +327,11 @@ export function AudioCapture({ onTranscription, onSummarize, isConnected, settin
     onSummarize(transcript.trim())
   }, [transcript, onSummarize])
 
+  const handleTranslateTranscript = useCallback(() => {
+    if (!transcript.trim()) return
+    onTranslate(transcript.trim())
+  }, [transcript, onTranslate])
+
   const handleClearTranscript = useCallback(() => {
     setTranscript('')
     lastTranscriptRef.current = ''
@@ -584,6 +590,13 @@ export function AudioCapture({ onTranscription, onSummarize, isConnected, settin
                 className="px-2 py-0.5 rounded text-[9px] bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 disabled:opacity-30 transition-colors"
               >
                 Summarize
+              </button>
+              <button
+                onClick={handleTranslateTranscript}
+                disabled={!isConnected}
+                className="px-2 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 disabled:opacity-30 transition-colors"
+              >
+                Translate PT
               </button>
               <button
                 onClick={handleSaveTranscript}

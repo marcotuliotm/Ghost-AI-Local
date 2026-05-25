@@ -138,6 +138,16 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
               description="Sends the transcription to Ollama to suggest a natural response for the conversation"
             />
             <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-purple-500/20 text-purple-400">Summarize</span>}
+              label="Summarize"
+              description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-blue-500/20 text-blue-400">Translate PT</span>}
+              label="Translate PT"
+              description="Sends the transcription to Ollama to translate it into Brazilian Portuguese in real time"
+            />
+            <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-success/20 text-ghost-success">Save</span>}
               label="Save"
               description="Saves the transcription to a .txt file with an AI-generated filename"
