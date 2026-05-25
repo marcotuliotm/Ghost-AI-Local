@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-electron/
+release/
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.dmg
+*.zip
+*.nsis
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+
+# Code signing
+*.pem
+*.p12
+*.key
+*.csr
+*.cert
+
+# npm
+.npmrc
+
+# Electron
+out/

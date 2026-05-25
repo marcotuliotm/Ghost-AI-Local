@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ghost-bg: rgba(15, 15, 20, 0.85);
+  --ghost-surface: rgba(25, 25, 35, 0.9);
+  --ghost-border: rgba(255, 255, 255, 0.08);
+  --ghost-accent: #6366f1;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  color: rgba(255, 255, 255, 0.9);
+  user-select: none;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Title bar drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Markdown rendering in responses */
+.response-content h1, .response-content h2, .response-content h3 {
+  @apply font-semibold mt-2 mb-1;
+}
+
+.response-content h1 { @apply text-base; }
+.response-content h2 { @apply text-sm; }
+.response-content h3 { @apply text-xs; }
+
+.response-content p {
+  @apply mb-1.5 text-xs leading-relaxed;
+}
+
+.response-content code {
+  @apply bg-white/10 px-1 py-0.5 rounded text-xs font-mono;
+}
+
+.response-content pre {
+  @apply bg-black/40 p-2 rounded-md my-2 overflow-x-auto;
+}
+
+.response-content pre code {
+  @apply bg-transparent p-0;
+}
+
+.response-content ul, .response-content ol {
+  @apply ml-4 mb-1.5 text-xs;
+}
+
+.response-content li {
+  @apply mb-0.5;
+}
+
+.response-content blockquote {
+  @apply border-l-2 border-ghost-accent pl-2 my-1.5 text-xs opacity-80;
+}
+
+/* Typing animation */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+  color: var(--ghost-accent);
+}
+
+/* Glass morphism */
+.glass {
+  background: rgba(15, 15, 20, 0.92);
+  border: 1px solid var(--ghost-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Indeterminate progress bar */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.animate-indeterminate {
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
