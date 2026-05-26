@@ -130,7 +130,18 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}
               label="Auto"
-              description="When active, each transcribed chunk is automatically sent to Ollama for reply suggestions"
+              description="When active, the accumulated transcription is automatically sent to Ollama at the configured interval for reply suggestions"
+            />
+            <ButtonRow
+              icon={
+                <div className="flex items-center gap-0.5">
+                  <span className="px-1 py-0.5 rounded text-[8px] bg-white/5 text-ghost-text-muted">-</span>
+                  <span className="text-[8px] text-ghost-text-muted">30s</span>
+                  <span className="px-1 py-0.5 rounded text-[8px] bg-white/5 text-ghost-text-muted">+</span>
+                </div>
+              }
+              label="Auto Interval (10-120s)"
+              description="Controls how often the transcription is sent to Ollama when Auto is active. Appears when Auto is on. Use - / + to adjust (steps of 5s)"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}

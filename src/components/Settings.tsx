@@ -124,6 +124,20 @@ export function SettingsPanel({
           />
         </Section>
 
+        {/* Suggest Reply Prompt */}
+        <Section title="Suggest Reply Prompt">
+          <textarea
+            value={localSettings.suggestReplyPrompt}
+            onChange={e => setLocalSettings(prev => ({ ...prev, suggestReplyPrompt: e.target.value }))}
+            rows={4}
+            className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent/50 transition-colors resize-none"
+            placeholder="Prompt sent when using Suggest Reply or Auto..."
+          />
+          <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+            Use <code className="bg-white/10 px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode.
+          </p>
+        </Section>
+
         {/* Appearance */}
         <Section title="Appearance">
           <div className="space-y-3">

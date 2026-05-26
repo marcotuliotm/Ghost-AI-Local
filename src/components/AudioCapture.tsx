@@ -75,8 +75,13 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
   const [transcript, setTranscript] = useState('')
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [autoSend, setAutoSend] = useState(false)
+  const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
   const autoSendRef = useRef(false)
+  const autoSendIntervalRef = useRef(30)
+  const autoSendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastAutoSentRef = useRef('')
+  const onTranscriptionRef = useRef(onTranscription)
 
   const streamsRef = useRef<MediaStream[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -97,9 +102,37 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
     }
   }, [whisperStatus, loadModel])
 
-  // Keep autoSend ref in sync
+  // Keep onTranscription ref in sync to avoid stale closures in timers
+  useEffect(() => {
+    onTranscriptionRef.current = onTranscription
+  }, [onTranscription])
+
+  // Keep autoSend ref in sync + manage auto-send timer
   useEffect(() => {
     autoSendRef.current = autoSend
+    if (autoSend && isListeningRef.current) {
+      // Start auto-send timer
+      if (autoSendTimerRef.current) clearInterval(autoSendTimerRef.current)
+      autoSendTimerRef.current = setInterval(() => {
+        const text = lastTranscriptRef.current.trim()
+        if (text && text !== lastAutoSentRef.current) {
+          lastAutoSentRef.current = text
+          onTranscriptionRef.current(text)
+        }
+      }, autoSendIntervalRef.current * 1000)
+    } else {
+      // Stop auto-send timer
+      if (autoSendTimerRef.current) {
+        clearInterval(autoSendTimerRef.current)
+        autoSendTimerRef.current = null
+      }
+    }
+    return () => {
+      if (autoSendTimerRef.current) {
+        clearInterval(autoSendTimerRef.current)
+        autoSendTimerRef.current = null
+      }
+    }
   }, [autoSend])
 
   // Cleanup on unmount
@@ -112,6 +145,10 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
     if (transcribeIntervalRef.current) {
       clearInterval(transcribeIntervalRef.current)
       transcribeIntervalRef.current = null
+    }
+    if (autoSendTimerRef.current) {
+      clearInterval(autoSendTimerRef.current)
+      autoSendTimerRef.current = null
     }
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
@@ -164,16 +201,28 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
           lastTranscriptRef.current = updated
           return updated
         })
-        if (autoSendRef.current && text.trim()) {
-          onTranscription(text.trim())
-        }
       }
     } catch (err: any) {
       console.error('Transcription error:', err)
     } finally {
       setIsTranscribing(false)
     }
-  }, [transcribe, isTranscribing, onTranscription])
+  }, [transcribe, isTranscribing])
+
+  // Keep autoSendInterval ref in sync and restart auto-send timer if active
+  useEffect(() => {
+    autoSendIntervalRef.current = autoSendInterval
+    if (autoSendRef.current && autoSendTimerRef.current) {
+      clearInterval(autoSendTimerRef.current)
+      autoSendTimerRef.current = setInterval(() => {
+        const text = lastTranscriptRef.current.trim()
+        if (text && text !== lastAutoSentRef.current) {
+          lastAutoSentRef.current = text
+          onTranscriptionRef.current(text)
+        }
+      }, autoSendInterval * 1000)
+    }
+  }, [autoSendInterval])
 
   // Get microphone stream
   const getMicStream = async (): Promise<MediaStream> => {
@@ -549,17 +598,40 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
           </span>
         )}
 
-        {/* Auto-send toggle */}
+        {/* Auto-send toggle + interval control */}
         {status === 'listening' && (
-          <button
-            onClick={() => setAutoSend(a => !a)}
-            className={`ml-auto px-1.5 py-0.5 rounded text-[8px] transition-colors ${
-              autoSend ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-white/5 text-ghost-text-muted'
-            }`}
-            title="Automatically send each transcribed chunk for suggestions"
-          >
-            Auto
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setAutoSend(a => !a)}
+              className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
+                autoSend ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-white/5 text-ghost-text-muted'
+              }`}
+              title="Automatically send transcription to Ollama at the configured interval"
+            >
+              Auto
+            </button>
+            {autoSend && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setAutoSendInterval(v => Math.max(10, v - 5))}
+                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-white/5 text-ghost-text-muted hover:bg-white/10 transition-colors"
+                  title="Decrease auto-send interval"
+                >
+                  -
+                </button>
+                <span className="text-[8px] text-ghost-text-muted w-5 text-center" title="Interval between automatic sends to Ollama (seconds)">
+                  {autoSendInterval}s
+                </span>
+                <button
+                  onClick={() => setAutoSendInterval(v => Math.min(120, v + 5))}
+                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-white/5 text-ghost-text-muted hover:bg-white/10 transition-colors"
+                  title="Increase auto-send interval"
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

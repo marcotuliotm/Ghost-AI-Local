@@ -3,7 +3,7 @@ import type { ChatMessage, OllamaMessage, OllamaModel, Settings } from '../types
 
 const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
-  selectedModel: 'gemma3:4b',
+  selectedModel: 'gemma3:12b',
   systemPrompt: `You are an invisible, anonymous AI assistant called Ghost AI. You provide real-time suggestions during conversations, meetings, and interviews.
 
 Rules:
@@ -13,6 +13,7 @@ Rules:
 - Always respond in English
 - Format with markdown when appropriate
 - If you receive a screenshot, analyze the visible content and provide relevant context`,
+  suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response to continue this conversation.',
   opacity: 0.9,
   language: 'pt-BR',
   transcriptionInterval: 10,

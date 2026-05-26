@@ -80,6 +80,7 @@ export interface Settings {
   ollamaBaseUrl: string
   selectedModel: string
   systemPrompt: string
+  suggestReplyPrompt: string
   opacity: number
   language: string
   transcriptionInterval: number

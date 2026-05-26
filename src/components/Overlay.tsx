@@ -323,7 +323,9 @@ export function Overlay({
         <div className="px-3 py-1.5 border-t border-ghost-border no-drag">
           <AudioCapture
             onTranscription={(text) => {
-              sendMessage(`The other person said: "${text}"\n\nSuggest a short, natural response to continue this conversation.`)
+              const prompt = (settings.suggestReplyPrompt || 'The other person said: "{{transcript}}"\n\nSuggest a short, natural response to continue this conversation.')
+                .replace('{{transcript}}', text)
+              sendMessage(prompt)
             }}
             onSummarize={(text) => {
               sendMessage(`Summarize the following conversation/audio transcription into clear bullet points with the key topics discussed:\n\n"${text}"`)
