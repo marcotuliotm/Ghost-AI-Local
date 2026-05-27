@@ -22,13 +22,13 @@ export default function App() {
 
   return (
     <div className="w-full h-full p-1">
-      {view === 'overlay' && (
+      <div className={view === 'overlay' ? 'w-full h-full' : 'hidden'}>
         <Overlay
           {...ghostAI}
           onOpenSettings={() => setView('settings')}
           onOpenHelp={() => setView('help')}
         />
-      )}
+      </div>
       {view === 'settings' && (
         <SettingsPanel
           settings={ghostAI.settings}

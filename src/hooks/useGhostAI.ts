@@ -27,6 +27,7 @@ export function useGhostAI() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   const [currentStreamContent, setCurrentStreamContent] = useState('')
   const streamContentRef = useRef('')
+  const messagesRef = useRef<ChatMessage[]>([])
 
   // Check Ollama connection
   const checkConnection = useCallback(async () => {
@@ -105,6 +106,11 @@ export function useGhostAI() {
     }
   }, [currentStreamContent, isStreaming])
 
+  // Keep messagesRef in sync so sendMessage always has latest messages
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
   // Send message
   const sendMessage = useCallback(async (content: string, screenshot?: string) => {
     if (!content.trim() && !screenshot) return
@@ -126,6 +132,8 @@ export function useGhostAI() {
       isStreaming: true,
     }
 
+    // Read current messages from ref (always up-to-date, no stale closure)
+    const currentMessages = messagesRef.current
     setMessages(prev => [...prev, userMessage, assistantMessage])
     setIsStreaming(true)
     streamContentRef.current = ''
@@ -137,7 +145,7 @@ export function useGhostAI() {
     ]
 
     // Add recent message history (last 20 messages for context)
-    const recentMessages = [...messages, userMessage].slice(-20)
+    const recentMessages = [...currentMessages, userMessage].slice(-20)
     for (const msg of recentMessages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
         ollamaMessages.push({
@@ -166,7 +174,7 @@ export function useGhostAI() {
       })
       setIsStreaming(false)
     }
-  }, [messages, settings, isStreaming])
+  }, [settings, isStreaming])
 
   // Quick actions
   const askSuggestion = useCallback((context: string) => {

@@ -368,7 +368,6 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
   const handleSendTranscript = useCallback(() => {
     if (!transcript.trim()) return
     onTranscription(transcript.trim())
-    setTranscript('')
   }, [transcript, onTranscription])
 
   const handleSummarizeTranscript = useCallback(() => {
