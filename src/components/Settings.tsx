@@ -194,6 +194,7 @@ export function SettingsPanel({
             <ShortcutRow label="Show/Hide overlay" shortcut="Cmd+Shift+G" />
             <ShortcutRow label="Capture screenshot" shortcut="Cmd+Shift+S" />
             <ShortcutRow label="Focus input" shortcut="Cmd+Shift+A" />
+            <ShortcutRow label="Screenshot crop" shortcut="Cmd+Shift+X" />
           </div>
         </Section>
 
