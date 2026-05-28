@@ -496,21 +496,33 @@ function setupIPC() {
     whisperLoading = true
     whisperError = null
 
-    // Use Electron's net.fetch (Chromium network stack) instead of Node's undici fetch.
-    // Node's fetch fails on HuggingFace's 302 redirect chain in Electron's main process.
+    // Use Chromium's net.fetch for HuggingFace downloads.
+    // Node's undici fetch can fail on HuggingFace's 302 redirect chain.
     const originalFetch = globalThis.fetch
-    globalThis.fetch = net.fetch as typeof globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: any) => {
+      try {
+        return await (net.fetch as any)(input, init)
+      } catch {
+        return originalFetch(input, init)
+      }
+    }) as typeof globalThis.fetch
 
     try {
-      // Dynamic import - @huggingface/transformers is ESM, main process is CJS
       const { pipeline, env } = await import('@huggingface/transformers')
 
-      // Download models from HuggingFace (cached after first download)
+      // CRITICAL: default cacheDir resolves to inside the asar archive in
+      // production. Native onnxruntime-node addon can't read .onnx files from
+      // asar, causing a silent hang. Redirect cache to a real writable directory.
+      const cacheDir = path.join(app.getPath('userData'), 'whisper-models')
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
+      env.cacheDir = cacheDir
+
+      // Don't look for models inside node_modules (also inside asar in prod)
       env.allowLocalModels = false
 
       mainWindow?.webContents.send('whisper-progress', {
         status: 'download',
-        message: 'Downloading Whisper model...',
+        message: 'Loading Whisper model...',
         progress: 0,
       })
 
@@ -520,24 +532,15 @@ function setupIPC() {
         {
           progress_callback: (data: any) => {
             if (data.status === 'progress') {
-              // data.progress is already 0-100 when available
-              // data.loaded / data.total when content-length is known
-              // When content-length is missing, progress may be undefined
               let pct = 0
               if (typeof data.progress === 'number') {
                 pct = Math.round(data.progress)
               } else if (data.total) {
                 pct = Math.round((data.loaded / data.total) * 100)
               }
-
-              const loaded = data.loaded
-                ? `${(data.loaded / 1024 / 1024).toFixed(1)}MB`
-                : ''
-              const total = data.total
-                ? ` / ${(data.total / 1024 / 1024).toFixed(1)}MB`
-                : ''
+              const loaded = data.loaded ? `${(data.loaded / 1024 / 1024).toFixed(1)}MB` : ''
+              const total = data.total ? ` / ${(data.total / 1024 / 1024).toFixed(1)}MB` : ''
               const file = data.file ? ` (${data.file.split('/').pop()})` : ''
-
               mainWindow?.webContents.send('whisper-progress', {
                 status: 'download',
                 message: pct > 0
@@ -549,13 +552,14 @@ function setupIPC() {
               const file = data.file ? ` ${data.file.split('/').pop()}` : ''
               mainWindow?.webContents.send('whisper-progress', {
                 status: 'download',
-                message: `Starting download${file}...`,
-                progress: 0,
+                message: `Loading${file}...`,
+                progress: 10,
               })
             } else if (data.status === 'done') {
+              const file = data.file ? data.file.split('/').pop() : ''
               mainWindow?.webContents.send('whisper-progress', {
                 status: 'download',
-                message: 'Loading model into memory...',
+                message: file ? `Loaded ${file}` : 'Initializing...',
                 progress: 90,
               })
             } else if (data.status === 'ready') {
@@ -570,7 +574,6 @@ function setupIPC() {
       )
 
       whisperLoading = false
-      // Restore original fetch after model is loaded
       globalThis.fetch = originalFetch
       mainWindow?.webContents.send('whisper-progress', {
         status: 'ready',

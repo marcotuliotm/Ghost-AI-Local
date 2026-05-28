@@ -23,7 +23,8 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!node_modules/@huggingface/transformers/.cache/**"
     ],
     "mac": {
       "target": [
