@@ -268,6 +268,17 @@ export function Overlay({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
             </svg>
           </button>
+
+          {/* Close / Quit */}
+          <button
+            onClick={() => window.ghostAPI.closeWindow()}
+            className="p-1 rounded hover:bg-red-500/60 transition-colors"
+            title="Quit"
+          >
+            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       </div>
 

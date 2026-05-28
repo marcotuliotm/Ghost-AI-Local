@@ -95,6 +95,10 @@ function createTray() {
       label: 'Screenshot (Cmd+Shift+S)',
       click: () => captureScreenshot(),
     },
+    {
+      label: 'Crop Screenshot (Cmd+Shift+X)',
+      click: () => captureScreenshotCrop(),
+    },
     { type: 'separator' },
     {
       label: 'Settings',
