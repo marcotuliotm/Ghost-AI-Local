@@ -5,6 +5,7 @@ interface AudioCaptureProps {
   onTranscription: (text: string) => void
   onSummarize: (text: string) => void
   onTranslate: (text: string) => void
+  onTranscriptChange?: (text: string) => void
   isConnected: boolean
   settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number }
 }
@@ -66,7 +67,7 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
  *
  * Flow: Audio source → Raw PCM → Whisper (main process) → Text → Ollama
  */
-export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConnected, settings }: AudioCaptureProps) {
+export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
   const [errorMsg, setErrorMsg] = useState('')
@@ -77,11 +78,14 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
   const [autoSend, setAutoSend] = useState(false)
   const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
+  const [streamDied, setStreamDied] = useState(false)
   const autoSendRef = useRef(false)
   const autoSendIntervalRef = useRef(30)
   const autoSendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastAutoSentRef = useRef('')
   const onTranscriptionRef = useRef(onTranscription)
+  const restartingRef = useRef(false)
+  const audioSourceRef = useRef<AudioSource>('system')
 
   const streamsRef = useRef<MediaStream[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -106,6 +110,16 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
   useEffect(() => {
     onTranscriptionRef.current = onTranscription
   }, [onTranscription])
+
+  // Keep audioSource ref in sync for auto-restart
+  useEffect(() => {
+    audioSourceRef.current = audioSource
+  }, [audioSource])
+
+  // Notify parent when transcript changes (so ChatInput can use it as context)
+  useEffect(() => {
+    onTranscriptChange?.(transcript)
+  }, [transcript, onTranscriptChange])
 
   // Keep autoSend ref in sync + manage auto-send timer
   useEffect(() => {
@@ -209,6 +223,117 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
     }
   }, [transcribe, isTranscribing])
 
+  // Auto-restart when stream dies (macOS ScreenCaptureKit timeout ~20 min)
+  useEffect(() => {
+    if (!streamDied || restartingRef.current) return
+
+    const restartCapture = async () => {
+      restartingRef.current = true
+      console.log('[AudioCapture] Stream died, auto-restarting...')
+
+      // Clean up dead resources without clearing transcript
+      stopCapture()
+      setStreamDied(false)
+      setStatus('requesting')
+      setErrorMsg('')
+
+      try {
+        const streams: MediaStream[] = []
+        const source = audioSourceRef.current
+
+        if (source === 'mic' || source === 'both') {
+          streams.push(await getMicStream())
+        }
+        if (source === 'system' || source === 'both') {
+          streams.push(await getSystemStream())
+        }
+
+        streamsRef.current = streams
+        isListeningRef.current = true
+        setStatus('listening')
+        audioChunksRef.current = []
+
+        // Re-wire audio pipeline
+        const audioContext = new AudioContext()
+        audioContextRef.current = audioContext
+
+        const merger = audioContext.createChannelMerger(1)
+        const analyser = audioContext.createAnalyser()
+        analyser.fftSize = 256
+
+        for (const stream of streams) {
+          const src = audioContext.createMediaStreamSource(stream)
+          src.connect(merger)
+          src.connect(analyser)
+
+          // Watch for track death again
+          for (const track of stream.getAudioTracks()) {
+            track.onended = () => {
+              console.warn('[AudioCapture] Audio track ended (OS killed stream)')
+              if (isListeningRef.current) {
+                setStreamDied(true)
+              }
+            }
+          }
+        }
+
+        const processor = audioContext.createScriptProcessor(4096, 1, 1)
+        processorRef.current = processor
+
+        processor.onaudioprocess = (e) => {
+          if (!isListeningRef.current) return
+          const inputData = e.inputBuffer.getChannelData(0)
+          audioChunksRef.current.push(new Float32Array(inputData))
+        }
+
+        merger.connect(processor)
+        processor.connect(audioContext.destination)
+
+        // Restart level visualization
+        const dataArray = new Uint8Array(analyser.frequencyBinCount)
+        const updateLevel = () => {
+          if (!isListeningRef.current) return
+          analyser.getByteFrequencyData(dataArray)
+          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
+          setAudioLevel(avg / 255)
+          animationFrameRef.current = requestAnimationFrame(updateLevel)
+        }
+        updateLevel()
+
+        // Restart duration timer (continue from current duration, don't reset)
+        durationIntervalRef.current = setInterval(() => {
+          setDuration(d => d + 1)
+        }, 1000)
+
+        // Restart transcription interval
+        transcribeIntervalRef.current = setInterval(() => {
+          transcribeChunks()
+        }, (settings.transcriptionInterval || 10) * 1000)
+
+        // Restart auto-send timer if it was active
+        if (autoSendRef.current) {
+          autoSendTimerRef.current = setInterval(() => {
+            const text = lastTranscriptRef.current.trim()
+            if (text && text !== lastAutoSentRef.current) {
+              lastAutoSentRef.current = text
+              onTranscriptionRef.current(text)
+            }
+          }, autoSendIntervalRef.current * 1000)
+        }
+
+        console.log('[AudioCapture] Stream restarted successfully')
+      } catch (err: any) {
+        console.error('[AudioCapture] Failed to restart stream:', err)
+        setStatus('error')
+        setErrorMsg(`Stream lost. ${err.message || err}`)
+      } finally {
+        restartingRef.current = false
+      }
+    }
+
+    restartCapture()
+  }, [streamDied, stopCapture, transcribeChunks, settings.transcriptionInterval])
+
   // Keep autoSendInterval ref in sync and restart auto-send timer if active
   useEffect(() => {
     autoSendIntervalRef.current = autoSendInterval
@@ -303,6 +428,16 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
         const source = audioContext.createMediaStreamSource(stream)
         source.connect(merger)
         source.connect(analyser)
+
+        // Detect when macOS kills the audio stream (ScreenCaptureKit timeout ~20 min)
+        for (const track of stream.getAudioTracks()) {
+          track.onended = () => {
+            console.warn('[AudioCapture] Audio track ended (OS killed stream)')
+            if (isListeningRef.current) {
+              setStreamDied(true)
+            }
+          }
+        }
       }
 
       // ScriptProcessor to capture raw PCM from merged audio
@@ -573,7 +708,9 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, isConn
                 />
               ))}
             </div>
-            {isTranscribing ? (
+            {streamDied ? (
+              <span className="text-[9px] text-ghost-warning animate-pulse">Reconnecting audio...</span>
+            ) : isTranscribing ? (
               <span className="text-[9px] text-ghost-accent animate-pulse">Transcribing...</span>
             ) : (
               <span className="text-[9px] text-ghost-text-muted">

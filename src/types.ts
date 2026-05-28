@@ -58,6 +58,7 @@ export interface GhostAPI {
 export interface OllamaMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
+  images?: string[]
 }
 
 export interface OllamaModel {

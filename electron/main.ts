@@ -179,7 +179,7 @@ function setupIPC() {
   // Ollama chat
   ipcMain.handle('ollama-chat', async (_event, payload: {
     model: string
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
   }) => {
     try {
@@ -207,7 +207,7 @@ function setupIPC() {
   // Ollama streaming chat
   ipcMain.handle('ollama-chat-stream', async (event, payload: {
     model: string
-    messages: Array<{ role: string; content: string }>
+    messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
   }) => {
     try {

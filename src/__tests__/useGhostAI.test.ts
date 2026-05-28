@@ -143,6 +143,61 @@ describe('useGhostAI', () => {
       expect(result.current.messages[0].screenshot).toBe('data:image/png;base64,abc')
     })
 
+    it('should include images array in Ollama payload when screenshot is attached', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      const { result } = renderHook(() => useGhostAI())
+
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.sendMessage('Analyze this', 'data:image/png;base64,abc123')
+      })
+
+      const mock = window.ghostAPI.ollamaChatStream as ReturnType<typeof vi.fn>
+      const payload = mock.mock.calls.at(-1)?.[0]
+      const userMessage = payload.messages.find((m: any) => m.role === 'user')
+
+      expect(userMessage).toBeDefined()
+      expect(userMessage.images).toBeDefined()
+      expect(userMessage.images).toEqual(['abc123'])
+    })
+
+    it('should strip data:image prefix from base64 before sending to Ollama', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      const { result } = renderHook(() => useGhostAI())
+
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.sendMessage('Describe', 'data:image/jpeg;base64,/9j/4AAQ')
+      })
+
+      const mock = window.ghostAPI.ollamaChatStream as ReturnType<typeof vi.fn>
+      const payload = mock.mock.calls.at(-1)?.[0]
+      const userMessage = payload.messages.find((m: any) => m.role === 'user')
+
+      expect(userMessage.images[0]).toBe('/9j/4AAQ')
+      expect(userMessage.images[0]).not.toContain('data:image')
+    })
+
+    it('should not include images field when no screenshot is attached', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      const { result } = renderHook(() => useGhostAI())
+
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.sendMessage('Hello without image')
+      })
+
+      const mock = window.ghostAPI.ollamaChatStream as ReturnType<typeof vi.fn>
+      const payload = mock.mock.calls.at(-1)?.[0]
+      const userMessage = payload.messages.find((m: any) => m.role === 'user')
+
+      expect(userMessage).toBeDefined()
+      expect(userMessage.images).toBeUndefined()
+    })
+
     it('should skip empty messages', async () => {
       const { result } = renderHook(() => useGhostAI())
 

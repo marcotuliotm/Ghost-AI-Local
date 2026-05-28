@@ -148,10 +148,17 @@ export function useGhostAI() {
     const recentMessages = [...currentMessages, userMessage].slice(-20)
     for (const msg of recentMessages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
-        ollamaMessages.push({
+        const ollamaMsg: OllamaMessage = {
           role: msg.role,
           content: msg.content,
-        })
+        }
+
+        // Include screenshot as base64 image for Ollama vision API
+        if (msg.screenshot) {
+          ollamaMsg.images = [msg.screenshot.replace(/^data:image\/\w+;base64,/, '')]
+        }
+
+        ollamaMessages.push(ollamaMsg)
       }
     }
 

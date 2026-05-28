@@ -125,7 +125,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Record / Stop"
-              description="Starts or stops audio capture. Audio is transcribed locally by Whisper"
+              description="Starts or stops audio capture. Audio is transcribed locally by Whisper. If macOS kills the stream (~20 min), it auto-reconnects"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}

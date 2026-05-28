@@ -31,6 +31,7 @@ export function Overlay({
 }: OverlayProps) {
   const [isCompact, setIsCompact] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [currentTranscript, setCurrentTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -333,6 +334,7 @@ export function Overlay({
             onTranslate={(text) => {
               sendMessage(`Translate the following text to Brazilian Portuguese. Provide ONLY the translation, nothing else:\n\n"${text}"`)
             }}
+            onTranscriptChange={setCurrentTranscript}
             isConnected={isConnected}
             settings={settings}
           />
@@ -342,7 +344,15 @@ export function Overlay({
       {/* Input */}
       <ChatInput
         ref={inputRef}
-        onSend={sendMessage}
+        onSend={(content) => {
+          // If there's an active transcription, include it as context
+          if (currentTranscript.trim()) {
+            const contextMessage = `[Audio transcription context]\n"${currentTranscript.trim()}"\n\n[User question]\n${content}`
+            sendMessage(contextMessage)
+          } else {
+            sendMessage(content)
+          }
+        }}
         isStreaming={isStreaming}
         isConnected={isConnected}
         isCompact={isCompact}
