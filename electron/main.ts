@@ -153,15 +153,160 @@ async function captureScreenshot(): Promise<string | null> {
   return null
 }
 
+async function captureScreenshotCrop(): Promise<string | null> {
+  const screenshot = await captureScreenshot()
+  if (!screenshot) return null
+
+  // Hide main window so it doesn't appear in the crop overlay
+  const wasVisible = mainWindow?.isVisible() ?? false
+  const prevBounds = mainWindow?.getBounds()
+  if (wasVisible) mainWindow?.hide()
+
+  return new Promise<string | null>((resolve) => {
+    const display = screen.getPrimaryDisplay()
+    const { x, y, width, height } = display.bounds
+
+    const cropWindow = new BrowserWindow({
+      width,
+      height,
+      x,
+      y,
+      frame: false,
+      transparent: false,
+      alwaysOnTop: true,
+      fullscreen: false,
+      fullscreenable: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      enableLargerThanScreen: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    })
+
+    cropWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+    // Cover the entire screen including menu bar without native fullscreen
+    cropWindow.setSimpleFullScreen(true)
+
+    let resolved = false
+    const finish = (result: string | null) => {
+      if (resolved) return
+      resolved = true
+      if (!cropWindow.isDestroyed()) {
+        cropWindow.setSimpleFullScreen(false)
+        cropWindow.close()
+      }
+      if (wasVisible && mainWindow) {
+        if (prevBounds) {
+          mainWindow.setBounds(prevBounds)
+        }
+        mainWindow.show()
+        mainWindow.setAlwaysOnTop(true, 'floating', 1)
+      }
+      resolve(result)
+    }
+
+    cropWindow.on('closed', () => finish(null))
+
+    const cropHTML = `<!DOCTYPE html>
+<html><head><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{cursor:crosshair;overflow:hidden;background:#000;user-select:none;-webkit-user-select:none}
+#bg{position:fixed;top:0;left:0;width:100vw;height:100vh;object-fit:cover;filter:brightness(0.4)}
+#canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:10}
+#hint{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:20;color:#fff;font-family:-apple-system,sans-serif;font-size:14px;padding:8px 16px;background:rgba(0,0,0,0.7);border-radius:8px;pointer-events:none}
+</style></head><body>
+<img id="bg" />
+<canvas id="canvas"></canvas>
+<div id="hint">Click and drag to select region — Esc to cancel</div>
+<script>
+const bg=document.getElementById('bg'),canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+let sx=0,sy=0,drawing=false,rect=null;
+const img=new Image();
+
+window.__cropResult=new Promise(ok=>{
+  bg.onload=()=>{img.src=bg.src};
+  canvas.addEventListener('mousedown',e=>{sx=e.clientX;sy=e.clientY;drawing=true;rect=null});
+  canvas.addEventListener('mousemove',e=>{
+    if(!drawing)return;
+    const x=Math.min(sx,e.clientX),y=Math.min(sy,e.clientY);
+    rect={x,y,w:Math.abs(e.clientX-sx),h:Math.abs(e.clientY-sy)};
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    if(img.naturalWidth){
+      const rx=img.naturalWidth/canvas.width,ry=img.naturalHeight/canvas.height;
+      ctx.drawImage(img,rect.x*rx,rect.y*ry,rect.w*rx,rect.h*ry,rect.x,rect.y,rect.w,rect.h);
+    }
+    ctx.strokeStyle='#00ff88';ctx.lineWidth=2;ctx.setLineDash([5,3]);
+    ctx.strokeRect(rect.x,rect.y,rect.w,rect.h);
+    ctx.setLineDash([]);ctx.fillStyle='rgba(0,0,0,0.7)';ctx.font='12px -apple-system,sans-serif';
+    const lb=Math.round(rect.w)+'x'+Math.round(rect.h),lw=ctx.measureText(lb).width+8;
+    ctx.fillRect(rect.x+rect.w-lw-4,rect.y+rect.h+4,lw+4,20);
+    ctx.fillStyle='#00ff88';ctx.fillText(lb,rect.x+rect.w-lw,rect.y+rect.h+18);
+  });
+  canvas.addEventListener('mouseup',()=>{drawing=false;if(rect&&rect.w>5&&rect.h>5)ok(rect);});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')ok(null)});
+});
+</script></body></html>`
+
+    cropWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(cropHTML)}`)
+
+    cropWindow.webContents.on('did-finish-load', () => {
+      // Inject the screenshot src after load (avoids URL length issues with data: URL)
+      cropWindow.webContents.executeJavaScript(
+        `document.getElementById('bg').src = ${JSON.stringify(screenshot)};`
+      ).catch(() => {})
+
+      // Wait for crop result
+      cropWindow.webContents.executeJavaScript('window.__cropResult')
+        .then((rect: { x: number; y: number; w: number; h: number } | null) => {
+          if (!rect || rect.w < 5 || rect.h < 5) {
+            finish(null)
+            return
+          }
+
+          const img = nativeImage.createFromDataURL(screenshot)
+          const imgSize = img.getSize()
+          const scaleX = imgSize.width / width
+          const scaleY = imgSize.height / height
+
+          const cropped = img.crop({
+            x: Math.round(rect.x * scaleX),
+            y: Math.round(rect.y * scaleY),
+            width: Math.round(rect.w * scaleX),
+            height: Math.round(rect.h * scaleY),
+          })
+
+          finish(cropped.toDataURL())
+        })
+        .catch(() => finish(null))
+    })
+  })
+}
+
 function registerShortcuts() {
   // Toggle overlay visibility
   globalShortcut.register('CommandOrControl+Shift+G', () => {
     toggleOverlay()
   })
 
-  // Capture screenshot
+  // Capture full screenshot
   globalShortcut.register('CommandOrControl+Shift+S', async () => {
     const screenshot = await captureScreenshot()
+    if (screenshot) {
+      mainWindow?.webContents.send('screenshot-captured', screenshot)
+    }
+  })
+
+  // Capture cropped screenshot
+  globalShortcut.register('CommandOrControl+Shift+X', async () => {
+    const screenshot = await captureScreenshotCrop()
     if (screenshot) {
       mainWindow?.webContents.send('screenshot-captured', screenshot)
     }
@@ -288,6 +433,11 @@ function setupIPC() {
   // Screenshot capture
   ipcMain.handle('capture-screenshot', async () => {
     return await captureScreenshot()
+  })
+
+  // Screenshot crop — opens a fullscreen overlay for region selection
+  ipcMain.handle('capture-screenshot-crop', async () => {
+    return await captureScreenshotCrop()
   })
 
   // Window controls

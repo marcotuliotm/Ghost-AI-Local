@@ -27,6 +27,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
           <div className="space-y-1.5 text-xs text-ghost-text-muted">
             <ShortcutRow label="Show/Hide overlay" shortcut="Cmd+Shift+G" />
             <ShortcutRow label="Capture screenshot & analyze" shortcut="Cmd+Shift+S" />
+            <ShortcutRow label="Crop screen region & analyze" shortcut="Cmd+Shift+X" />
             <ShortcutRow label="Focus text input" shortcut="Cmd+Shift+A" />
             <ShortcutRow label="Clear text input" shortcut="Esc" />
             <ShortcutRow label="Send message" shortcut="Enter" />
@@ -52,8 +53,17 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               }
-              label="Screenshot"
-              description="Captures the screen and sends it to Ollama to analyze visible content"
+              label="Screenshot (Full)"
+              description="Captures the full screen and sends it to Ollama to analyze visible content (Cmd+Shift+S)"
+            />
+            <ButtonRow
+              icon={
+                <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3v4M3 7h4m10 0h4M17 3v4M7 17v4M3 17h4m10 0h4m-4-14v14H7V3" />
+                </svg>
+              }
+              label="Screenshot (Crop)"
+              description="Opens a fullscreen overlay to select a region (Cmd+Shift+X). Click and drag to crop, Esc to cancel. The cropped region is sent to Ollama for analysis"
             />
             <ButtonRow
               icon={

@@ -34,6 +34,7 @@ const api = {
 
   // Screenshot
   captureScreenshot: () => ipcRenderer.invoke('capture-screenshot'),
+  captureScreenshotCrop: () => ipcRenderer.invoke('capture-screenshot-crop'),
 
   // Window controls
   minimizeWindow: () => ipcRenderer.send('window-minimize'),

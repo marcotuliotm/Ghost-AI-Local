@@ -373,4 +373,49 @@ describe('useGhostAI', () => {
       expect(result.current.messages.length).toBe(0)
     })
   })
+
+  describe('analyzeScreenshotCrop', () => {
+    it('should capture cropped screenshot and send message', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      window.ghostAPI.captureScreenshotCrop = vi.fn().mockResolvedValue('data:image/png;base64,cropped')
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.analyzeScreenshotCrop()
+      })
+
+      expect(window.ghostAPI.captureScreenshotCrop).toHaveBeenCalled()
+      expect(result.current.messages.length).toBe(2)
+      expect(result.current.messages[0].screenshot).toBe('data:image/png;base64,cropped')
+    })
+
+    it('should not send if crop is cancelled (null)', async () => {
+      window.ghostAPI.captureScreenshotCrop = vi.fn().mockResolvedValue(null)
+      const { result } = renderHook(() => useGhostAI())
+
+      await act(async () => {
+        await result.current.analyzeScreenshotCrop()
+      })
+
+      expect(result.current.messages.length).toBe(0)
+    })
+
+    it('should include cropped image in Ollama payload', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      window.ghostAPI.captureScreenshotCrop = vi.fn().mockResolvedValue('data:image/png;base64,croppedBase64Data')
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.analyzeScreenshotCrop()
+      })
+
+      const mock = window.ghostAPI.ollamaChatStream as ReturnType<typeof vi.fn>
+      const payload = mock.mock.calls.at(-1)?.[0]
+      const userMessage = payload.messages.find((m: any) => m.role === 'user')
+
+      expect(userMessage.images).toEqual(['croppedBase64Data'])
+    })
+  })
 })

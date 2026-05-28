@@ -23,6 +23,7 @@ export interface GhostAPI {
 
   // Screenshot
   captureScreenshot: () => Promise<string | null>
+  captureScreenshotCrop: () => Promise<string | null>
 
   // Window
   minimizeWindow: () => void

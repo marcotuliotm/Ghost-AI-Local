@@ -195,6 +195,13 @@ export function useGhostAI() {
     }
   }, [sendMessage])
 
+  const analyzeScreenshotCrop = useCallback(async () => {
+    const screenshot = await window.ghostAPI.captureScreenshotCrop()
+    if (screenshot) {
+      sendMessage('Analyze this cropped screenshot region and describe what you see. Give suggestions if it is a conversation, code, or presentation.', screenshot)
+    }
+  }, [sendMessage])
+
   const clearChat = useCallback(() => {
     setMessages([])
   }, [])
@@ -212,6 +219,7 @@ export function useGhostAI() {
     sendMessage,
     askSuggestion,
     analyzeScreenshot,
+    analyzeScreenshotCrop,
     clearChat,
     updateSettings,
     checkConnection,

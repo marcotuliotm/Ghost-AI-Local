@@ -103,9 +103,10 @@ describe('HelpPanel', () => {
   })
 
   describe('title bar buttons documentation', () => {
-    it('should document Screenshot button', () => {
+    it('should document Screenshot buttons', () => {
       render(<HelpPanel {...defaultProps} />)
-      expect(screen.getByText('Screenshot')).toBeInTheDocument()
+      expect(screen.getByText('Screenshot (Full)')).toBeInTheDocument()
+      expect(screen.getByText('Screenshot (Crop)')).toBeInTheDocument()
     })
 
     it('should document Settings button', () => {

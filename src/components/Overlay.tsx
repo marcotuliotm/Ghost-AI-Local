@@ -13,6 +13,7 @@ interface OverlayProps {
   sendMessage: (content: string, screenshot?: string) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
+  analyzeScreenshotCrop: () => void
   clearChat: () => void
   onOpenSettings: () => void
   onOpenHelp: () => void
@@ -25,6 +26,7 @@ export function Overlay({
   settings,
   sendMessage,
   analyzeScreenshot,
+  analyzeScreenshotCrop,
   clearChat,
   onOpenSettings,
   onOpenHelp,
@@ -181,15 +183,26 @@ export function Overlay({
             </svg>
           </button>
 
-          {/* Screenshot */}
+          {/* Screenshot full */}
           <button
             onClick={analyzeScreenshot}
             className="p-1 rounded hover:bg-white/10 transition-colors"
-            title="Capture screen (Cmd+Shift+S)"
+            title="Capture full screen (Cmd+Shift+S)"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+
+          {/* Screenshot crop */}
+          <button
+            onClick={analyzeScreenshotCrop}
+            className="p-1 rounded hover:bg-white/10 transition-colors"
+            title="Capture screen region (Cmd+Shift+X)"
+          >
+            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3v4M3 7h4m10 0h4M17 3v4M7 17v4M3 17h4m10 0h4m-4-14v14H7V3" />
             </svg>
           </button>
 

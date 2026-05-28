@@ -22,6 +22,7 @@ const defaultProps = {
   sendMessage: vi.fn(),
   askSuggestion: vi.fn(),
   analyzeScreenshot: vi.fn(),
+  analyzeScreenshotCrop: vi.fn(),
   clearChat: vi.fn(),
   onOpenSettings: vi.fn(),
   onOpenHelp: vi.fn(),
@@ -175,8 +176,16 @@ describe('Overlay', () => {
       const analyzeScreenshot = vi.fn()
       render(<Overlay {...defaultProps} analyzeScreenshot={analyzeScreenshot} />)
 
-      fireEvent.click(screen.getByTitle('Capture screen (Cmd+Shift+S)'))
+      fireEvent.click(screen.getByTitle('Capture full screen (Cmd+Shift+S)'))
       expect(analyzeScreenshot).toHaveBeenCalledTimes(1)
+    })
+
+    it('should call analyzeScreenshotCrop when crop button is clicked', () => {
+      const analyzeScreenshotCrop = vi.fn()
+      render(<Overlay {...defaultProps} analyzeScreenshotCrop={analyzeScreenshotCrop} />)
+
+      fireEvent.click(screen.getByTitle('Capture screen region (Cmd+Shift+X)'))
+      expect(analyzeScreenshotCrop).toHaveBeenCalledTimes(1)
     })
 
     it('should call minimizeWindow when minimize is clicked', () => {
