@@ -15,7 +15,7 @@ Element.prototype.scrollIntoView = vi.fn()
 const createMockGhostAPI = () => ({
   ollamaChat: vi.fn().mockResolvedValue({ success: true, message: { role: 'assistant', content: 'test response' } }),
   ollamaChatStream: vi.fn().mockResolvedValue({ success: true, message: { role: 'assistant', content: 'test response' } }),
-  ollamaListModels: vi.fn().mockResolvedValue({ success: true, models: [{ name: 'gemma3:12b', size: 1000000, digest: 'abc', modified_at: '2024-01-01' }] }),
+  ollamaListModels: vi.fn().mockResolvedValue({ success: true, models: [{ name: 'gemma4:latest', size: 1000000, digest: 'abc', modified_at: '2024-01-01' }] }),
   ollamaCheck: vi.fn().mockResolvedValue({ connected: true }),
   captureScreenshot: vi.fn().mockResolvedValue(null),
   captureScreenshotCrop: vi.fn().mockResolvedValue(null),

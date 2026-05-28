@@ -5,7 +5,7 @@ import type { ChatMessage, Settings } from '../types'
 
 const defaultSettings: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
-  selectedModel: 'gemma3:12b',
+  selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response.',
   opacity: 0.9,
@@ -49,7 +49,7 @@ describe('Overlay', () => {
 
     it('should show model name when connected', () => {
       render(<Overlay {...defaultProps} isConnected={true} />)
-      expect(screen.getByText('gemma3:12b')).toBeInTheDocument()
+      expect(screen.getByText('gemma4:latest')).toBeInTheDocument()
     })
 
     it('should show welcome message when no messages', () => {

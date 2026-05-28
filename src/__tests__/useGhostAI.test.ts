@@ -11,7 +11,7 @@ describe('useGhostAI', () => {
     it('should return default settings', async () => {
       const { result } = renderHook(() => useGhostAI())
       expect(result.current.settings.ollamaBaseUrl).toBe('http://localhost:11434')
-      expect(result.current.settings.selectedModel).toBe('gemma3:12b')
+      expect(result.current.settings.selectedModel).toBe('gemma4:latest')
       expect(result.current.settings.opacity).toBe(0.9)
       expect(result.current.settings.transcriptionInterval).toBe(10)
       expect(result.current.settings.suggestReplyPrompt).toContain('{{transcript}}')
@@ -62,7 +62,7 @@ describe('useGhostAI', () => {
   describe('fetchModels', () => {
     it('should populate models list', async () => {
       const mockModels = [
-        { name: 'gemma3:12b', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
+        { name: 'gemma4:latest', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
         { name: 'llama3:8b', size: 4000000000, digest: 'def', modified_at: '2024-01-02' },
       ]
       window.ghostAPI.ollamaListModels = vi.fn().mockResolvedValue({ success: true, models: mockModels })
@@ -71,7 +71,7 @@ describe('useGhostAI', () => {
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => {
         expect(result.current.models.length).toBe(2)
-        expect(result.current.models[0].name).toBe('gemma3:12b')
+        expect(result.current.models[0].name).toBe('gemma4:latest')
       })
     })
 
@@ -118,7 +118,7 @@ describe('useGhostAI', () => {
 
       expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'gemma3:12b',
+          model: 'gemma4:latest',
           baseUrl: 'http://localhost:11434',
           messages: expect.arrayContaining([
             expect.objectContaining({ role: 'system' }),

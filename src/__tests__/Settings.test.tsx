@@ -6,7 +6,7 @@ import type { Settings, OllamaModel } from '../types'
 
 const defaultSettings: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
-  selectedModel: 'gemma3:12b',
+  selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response.',
   opacity: 0.9,
@@ -15,7 +15,7 @@ const defaultSettings: Settings = {
 }
 
 const defaultModels: OllamaModel[] = [
-  { name: 'gemma3:12b', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
+  { name: 'gemma4:latest', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
   { name: 'llama3:8b', size: 4000000000, digest: 'def', modified_at: '2024-01-02' },
 ]
 
@@ -54,7 +54,7 @@ describe('SettingsPanel', () => {
 
     it('should show model dropdown with models', () => {
       render(<SettingsPanel {...defaultProps} />)
-      const select = screen.getByDisplayValue(/gemma3:12b/)
+      const select = screen.getByDisplayValue(/gemma4:latest/)
       expect(select).toBeInTheDocument()
     })
 

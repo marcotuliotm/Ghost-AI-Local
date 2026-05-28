@@ -3,7 +3,7 @@ import type { ChatMessage, OllamaMessage, OllamaModel, Settings } from '../types
 
 const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
-  selectedModel: 'gemma3:12b',
+  selectedModel: 'gemma4:latest',
   systemPrompt: `You are an invisible, anonymous AI assistant called Ghost AI. You provide real-time suggestions during conversations, meetings, and interviews.
 
 Rules:

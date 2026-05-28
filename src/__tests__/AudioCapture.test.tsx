@@ -8,7 +8,7 @@ const defaultProps = {
   onTranslate: vi.fn(),
   isConnected: true,
   settings: {
-    selectedModel: 'gemma3:12b',
+    selectedModel: 'gemma4:latest',
     ollamaBaseUrl: 'http://localhost:11434',
     transcriptionInterval: 10,
   },
