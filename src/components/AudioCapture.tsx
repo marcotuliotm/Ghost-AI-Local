@@ -96,6 +96,8 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   const audioChunksRef = useRef<Float32Array[]>([])
   const transcribeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastTranscriptRef = useRef('')
+  const transcriptScrollRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
 
   const { status: whisperStatus, progress, progressMessage, error: whisperError, loadModel, transcribe } = useWhisper()
 
@@ -120,6 +122,21 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   useEffect(() => {
     onTranscriptChange?.(transcript)
   }, [transcript, onTranscriptChange])
+
+  // Auto-scroll the transcript box to the bottom as new text arrives,
+  // unless the user has scrolled up to read earlier content.
+  useEffect(() => {
+    const el = transcriptScrollRef.current
+    if (el && stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [transcript])
+
+  // Track whether the user is near the bottom so we know to keep following
+  const handleTranscriptScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16
+  }, [])
 
   // Keep autoSend ref in sync + manage auto-send timer
   useEffect(() => {
@@ -774,7 +791,11 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       {/* Transcript display */}
       {(transcript || status === 'listening') && (
         <div className="space-y-1 animate-fade-in">
-          <div className="bg-white/5 border border-ghost-border rounded-lg px-2 py-1.5 max-h-24 overflow-y-auto">
+          <div
+            ref={transcriptScrollRef}
+            onScroll={handleTranscriptScroll}
+            className="bg-white/5 border border-ghost-border rounded-lg px-2 py-1.5 max-h-24 overflow-y-auto"
+          >
             {transcript ? (
               <p className="text-[10px] text-ghost-text leading-relaxed">{transcript}</p>
             ) : (

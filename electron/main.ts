@@ -666,13 +666,21 @@ app.whenReady().then(() => {
   })
 
   // Handle getDisplayMedia requests - capture system audio via loopback (macOS 13+ ScreenCaptureKit)
+  if (process.platform === 'darwin') {
+    console.log('[perm] screen recording status:', systemPreferences.getMediaAccessStatus('screen'))
+    console.log('[perm] microphone status:', systemPreferences.getMediaAccessStatus('microphone'))
+  }
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      console.log('[displayMedia] sources found:', sources.length, sources.map(s => s.name))
       if (sources.length > 0) {
         callback({ video: sources[0], audio: 'loopback' })
+      } else {
+        console.warn('[displayMedia] no screen sources - likely missing Screen Recording permission')
+        callback({})
       }
     })
-  })
+  }, { useSystemPicker: false })
 
   createWindow()
 
