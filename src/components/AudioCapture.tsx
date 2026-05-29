@@ -788,13 +788,14 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
         )}
       </div>
 
-      {/* Transcript display */}
+      {/* Transcript display — drag the bottom edge to resize vertically */}
       {(transcript || status === 'listening') && (
         <div className="space-y-1 animate-fade-in">
           <div
             ref={transcriptScrollRef}
             onScroll={handleTranscriptScroll}
-            className="bg-white/5 border border-ghost-border rounded-lg px-2 py-1.5 max-h-24 overflow-y-auto"
+            className="bg-white/5 border border-ghost-border rounded-lg px-2 py-1.5 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
+            title="Drag the bottom edge to resize"
           >
             {transcript ? (
               <p className="text-[10px] text-ghost-text leading-relaxed">{transcript}</p>
