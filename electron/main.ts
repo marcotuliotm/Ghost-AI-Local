@@ -666,8 +666,10 @@ app.whenReady().then(() => {
   })
 
   // Handle getDisplayMedia requests - capture system audio via loopback (macOS 13+ ScreenCaptureKit)
-  // NOTE: Keep Electron on the 33.x line. Electron 42 breaks system-audio loopback
-  // on recent macOS (the loopback track goes live-but-silent). See package.json pin.
+  // NOTE: Pin Electron to 38.8.6 (see package.json). Electron 39+ (newer Chromium)
+  // breaks system-audio loopback on recent macOS: the loopback track is created but
+  // stays live-but-silent. 38.8.6 is the newest Electron where it still works.
+  // Do NOT run `npm audit fix --force` — it jumps to 42 and silently breaks audio.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
       if (sources.length > 0) {
