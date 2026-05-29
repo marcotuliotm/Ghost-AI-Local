@@ -7,6 +7,7 @@
   --ghost-surface: rgba(25, 25, 35, 0.9);
   --ghost-border: rgba(255, 255, 255, 0.08);
   --ghost-accent: #6366f1;
+  --ghost-font-size: 12px;
 }
 
 * {
@@ -22,6 +23,7 @@ html, body, #root {
   overflow: hidden;
   background: transparent;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-size: var(--ghost-font-size);
   color: rgba(255, 255, 255, 0.9);
   user-select: none;
 }

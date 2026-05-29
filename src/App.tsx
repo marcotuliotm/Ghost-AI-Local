@@ -11,6 +11,10 @@ export default function App() {
   const ghostAI = useGhostAI()
 
   useEffect(() => {
+    document.documentElement.style.setProperty('--ghost-font-size', `${ghostAI.settings.fontSize}px`)
+  }, [ghostAI.settings.fontSize])
+
+  useEffect(() => {
     const removeSettingsListener = window.ghostAPI.onOpenSettings(() => {
       setView('settings')
     })

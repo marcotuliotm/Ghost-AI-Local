@@ -159,6 +159,24 @@ export function SettingsPanel({
                 className="w-full accent-ghost-accent"
               />
             </div>
+            <div>
+              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+                Font size: {localSettings.fontSize}px
+              </label>
+              <input
+                type="range"
+                min="10"
+                max="30"
+                step="1"
+                value={localSettings.fontSize}
+                onChange={e => {
+                  const fontSize = parseInt(e.target.value)
+                  setLocalSettings(prev => ({ ...prev, fontSize }))
+                  document.documentElement.style.setProperty('--ghost-font-size', `${fontSize}px`)
+                }}
+                className="w-full accent-ghost-accent"
+              />
+            </div>
           </div>
         </Section>
 

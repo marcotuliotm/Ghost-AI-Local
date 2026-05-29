@@ -15,6 +15,7 @@ Rules:
 - If you receive a screenshot, analyze the visible content and provide relevant context`,
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response to continue this conversation.',
   opacity: 0.9,
+  fontSize: 12,
   language: 'pt-BR',
   transcriptionInterval: 10,
 }

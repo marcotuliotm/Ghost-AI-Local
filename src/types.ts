@@ -84,6 +84,7 @@ export interface Settings {
   systemPrompt: string
   suggestReplyPrompt: string
   opacity: number
+  fontSize: number
   language: string
   transcriptionInterval: number
 }
