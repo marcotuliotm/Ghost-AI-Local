@@ -15,6 +15,7 @@ interface OverlayProps {
   analyzeScreenshot: () => void
   analyzeScreenshotCrop: () => void
   clearChat: () => void
+  updateSettings: (settings: Partial<Settings>) => void
   onOpenSettings: () => void
   onOpenHelp: () => void
 }
@@ -23,19 +24,34 @@ export function Overlay({
   messages,
   isStreaming,
   isConnected,
+  models,
   settings,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
   clearChat,
+  updateSettings,
   onOpenSettings,
   onOpenHelp,
 }: OverlayProps) {
-  const [isCompact, setIsCompact] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [showModelMenu, setShowModelMenu] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+
+  // Close the model menu when clicking outside
+  useEffect(() => {
+    if (!showModelMenu) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setShowModelMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showModelMenu])
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -168,20 +184,41 @@ export function Overlay({
         </div>
 
         <div className="flex items-center gap-1 no-drag">
-          {/* Compact toggle */}
-          <button
-            onClick={() => setIsCompact(!isCompact)}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
-            title={isCompact ? 'Expand' : 'Compact'}
-          >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              {isCompact ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              )}
-            </svg>
-          </button>
+          {/* Model switcher */}
+          <div className="relative" ref={modelMenuRef}>
+            <button
+              onClick={() => setShowModelMenu(prev => !prev)}
+              className="p-1 rounded hover:bg-white/10 transition-colors"
+              title="Change model"
+            >
+              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </button>
+
+            {showModelMenu && (
+              <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto glass rounded-lg border border-ghost-border shadow-lg z-50 py-1">
+                {models.length === 0 && (
+                  <div className="px-3 py-2 text-[10px] text-ghost-text-muted">No models found</div>
+                )}
+                {models.map(model => (
+                  <button
+                    key={model.name}
+                    onClick={() => {
+                      updateSettings({ selectedModel: model.name })
+                      setShowModelMenu(false)
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-white/10 transition-colors flex items-center gap-2 ${
+                      model.name === settings.selectedModel ? 'text-ghost-accent' : 'text-ghost-text-muted'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${model.name === settings.selectedModel ? 'bg-ghost-accent' : 'bg-transparent'}`} />
+                    <span className="truncate">{model.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Screenshot full */}
           <button
@@ -283,8 +320,7 @@ export function Overlay({
       </div>
 
       {/* Messages Area */}
-      {!isCompact && (
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div className="text-2xl mb-3 opacity-40">👻</div>
@@ -322,11 +358,10 @@ export function Overlay({
             <MessageBubble key={msg.id} message={msg} />
           ))}
           <div ref={messagesEndRef} />
-        </div>
-      )}
+      </div>
 
       {/* Quick Actions */}
-      {!isCompact && messages.length > 0 && !isStreaming && (
+      {messages.length > 0 && !isStreaming && (
         <div className="px-3 py-1 flex gap-1 overflow-x-auto no-drag">
           <QuickAction
             label="Summarize"
@@ -344,8 +379,7 @@ export function Overlay({
       )}
 
       {/* Audio Capture */}
-      {!isCompact && (
-        <div className="px-3 py-1.5 border-t border-ghost-border no-drag">
+      <div className="px-3 py-1.5 border-t border-ghost-border no-drag">
           <AudioCapture
             onTranscription={(text) => {
               const prompt = (settings.suggestReplyPrompt || 'The other person said: "{{transcript}}"\n\nSuggest a short, natural response to continue this conversation.')
@@ -362,8 +396,7 @@ export function Overlay({
             isConnected={isConnected}
             settings={settings}
           />
-        </div>
-      )}
+      </div>
 
       {/* Input */}
       <ChatInput
@@ -379,7 +412,6 @@ export function Overlay({
         }}
         isStreaming={isStreaming}
         isConnected={isConnected}
-        isCompact={isCompact}
       />
     </div>
   )

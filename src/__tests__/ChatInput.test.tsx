@@ -8,7 +8,6 @@ describe('ChatInput', () => {
     onSend: vi.fn(),
     isStreaming: false,
     isConnected: true,
-    isCompact: false,
   }
 
   describe('rendering', () => {

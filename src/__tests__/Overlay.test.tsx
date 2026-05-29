@@ -24,6 +24,7 @@ const defaultProps = {
   analyzeScreenshot: vi.fn(),
   analyzeScreenshotCrop: vi.fn(),
   clearChat: vi.fn(),
+  updateSettings: vi.fn(),
   onOpenSettings: vi.fn(),
   onOpenHelp: vi.fn(),
 }
@@ -196,19 +197,23 @@ describe('Overlay', () => {
     })
   })
 
-  describe('compact mode', () => {
-    it('should toggle compact mode', () => {
-      render(<Overlay {...defaultProps} />)
+  describe('model switcher', () => {
+    const models = [
+      { name: 'gemma4:latest', size: 1000, digest: 'a', modified_at: '', details: {} as never },
+      { name: 'llama3.2:latest', size: 2000, digest: 'b', modified_at: '', details: {} as never },
+    ]
 
-      // Welcome screen should be visible
-      expect(screen.getByText(/Local Anonymous Assistant/)).toBeInTheDocument()
+    it('should open the model menu and switch the active model', () => {
+      const updateSettings = vi.fn()
+      render(<Overlay {...defaultProps} models={models} updateSettings={updateSettings} />)
 
-      // Click compact button
-      const compactButton = screen.getByTitle('Compact')
-      fireEvent.click(compactButton)
+      // Open the model menu
+      fireEvent.click(screen.getByTitle('Change model'))
 
-      // Welcome screen should be hidden in compact mode
-      expect(screen.queryByText(/Local Anonymous Assistant/)).not.toBeInTheDocument()
+      // Pick a different model
+      fireEvent.click(screen.getByText('llama3.2:latest'))
+
+      expect(updateSettings).toHaveBeenCalledWith({ selectedModel: 'llama3.2:latest' })
     })
   })
 

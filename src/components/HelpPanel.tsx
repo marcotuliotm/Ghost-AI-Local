@@ -40,11 +40,11 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={
                 <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
               }
-              label="Compact / Expand"
-              description="Minimizes the UI showing only the text input, or expands showing everything"
+              label="Change model"
+              description="Opens a quick menu to switch the active Ollama model on the fly"
             />
             <ButtonRow
               icon={

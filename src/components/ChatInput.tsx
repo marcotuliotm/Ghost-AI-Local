@@ -4,11 +4,10 @@ interface ChatInputProps {
   onSend: (message: string) => void
   isStreaming: boolean
   isConnected: boolean
-  isCompact: boolean
 }
 
 export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
-  ({ onSend, isStreaming, isConnected, isCompact }, ref) => {
+  ({ onSend, isStreaming, isConnected }, ref) => {
     const [input, setInput] = useState('')
 
     const handleSubmit = useCallback(
@@ -34,7 +33,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
     return (
       <form
         onSubmit={handleSubmit}
-        className={`px-3 ${isCompact ? 'py-2' : 'py-2'} border-t border-ghost-border no-drag`}
+        className="px-3 py-2 border-t border-ghost-border no-drag"
       >
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
