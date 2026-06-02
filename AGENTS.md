@@ -8,7 +8,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Electron 33 |
+| Framework | Electron 38.8.6 (pinned — see note below) |
 | Frontend | React 18 + TypeScript 5 |
 | Bundler | Vite 6 + vite-plugin-electron |
 | Styling | TailwindCSS 3 |
@@ -98,6 +98,7 @@ npm run dist:win   # Build + package Windows NSIS
 | `whisper-transcribe` | renderer->main | invoke | Transcribe Float32Array audio |
 | `whisper-status` | renderer->main | invoke | Get current Whisper status |
 | `save-conversation` | renderer->main | invoke | Show save dialog + write .txt |
+| `clipboard-write` | renderer->main | invoke | Write text to native clipboard (bypasses web permission handler) |
 | `request-mic-permission` | renderer->main | invoke | macOS microphone access |
 | `get-mic-status` | renderer->main | invoke | Check mic permission status |
 | `window-minimize` | renderer->main | send | Hide window |
@@ -122,7 +123,8 @@ interface Settings {
   selectedModel: string        // default: 'gemma3:4b'
   systemPrompt: string         // Ghost AI system prompt
   opacity: number              // window opacity 0-1 (default 0.9)
-  language: string             // default: 'pt-BR'
+  fontSize: number             // UI font size in px (default 12)
+  language: string             // default: 'pt-BR' (legacy, currently unused)
   transcriptionInterval: number // seconds between transcriptions 3-30 (default 10)
 }
 
@@ -153,6 +155,12 @@ Both `electron/main.ts` and `electron/preload.ts` are built as CommonJS (`format
 ### `electron-store` is listed but unused
 `electron-store` is in `dependencies` but is not imported anywhere. Settings are kept in React state only (in-memory). Persisting settings to disk is a potential future feature.
 
+### Transcript box is resizable via CSS `resize-y`
+The transcript div uses `resize-y` with Tailwind classes (`h-24 min-h-[48px] max-h-[480px]`) instead of a React-controlled `style.height`. This is intentional: setting height via a React style prop would reset the user's drag on every re-render (which happens frequently during transcription). The native resize handle writes inline style directly to the DOM, bypassing React's reconciler.
+
+### Model switching from the title bar
+`Overlay.tsx` receives `models` (from `useGhostAI`) and `updateSettings` props. The model-switcher dropdown calls `updateSettings({ selectedModel })` directly — no navigation to Settings required.
+
 ### Auto button uses `useRef` to avoid stale closures
 The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instead, `autoSendRef = useRef(autoSend)` is kept in sync, and the interval callback reads `autoSendRef.current`.
 
@@ -160,7 +168,10 @@ The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instea
 Creating a `Tray` in dev mode triggers `SetApplicationIsDaemon` errors on unsigned macOS builds. The tray and dock-hiding are gated behind `!VITE_DEV_SERVER_URL`.
 
 ### Permission handler is restricted
-`setPermissionRequestHandler` only allows `media`, `microphone`, and `screen` permissions. All other permission requests are denied.
+`setPermissionRequestHandler` only allows `media`, `microphone`, and `screen` permissions. All other permission requests are denied. Notably, the web clipboard API (`navigator.clipboard`) is blocked by this — clipboard writes are routed through the native `clipboard-write` IPC channel instead.
+
+### Electron version is pinned at 38.8.6
+Electron 39+ (a newer Chromium engine) breaks system-audio loopback on recent macOS: the loopback track is created but stays live-but-silent, so the level meter never moves and no audio is captured. 38.8.6 is the highest version where loopback still works. The version is pinned exactly in `package.json` (no caret). **Do not run `npm audit fix --force`** — it upgrades to Electron 42 and silently breaks system audio.
 
 ## Adding New Features
 
@@ -230,11 +241,23 @@ Creating a `Tray` in dev mode triggers `SetApplicationIsDaemon` errors on unsign
 
 ## Testing
 
-There is currently no test suite. When adding tests:
-- Use Vitest (compatible with Vite) for unit/integration tests
-- Mock `window.ghostAPI` for renderer component tests
-- Mock Electron's `ipcMain`/`ipcRenderer` for IPC tests
-- Whisper and Ollama are external services — mock their responses
+The project has a Vitest test suite (`npm test`). Currently **148 tests** across 9 test files under `src/__tests__/`.
+
+### Running tests
+
+```bash
+npm test             # Run once
+npm run test:watch   # Watch mode
+```
+
+### Test conventions
+
+- **Framework**: Vitest + React Testing Library + `@testing-library/jest-dom`
+- **`window.ghostAPI` mock**: defined in `src/__tests__/setup.ts` (all IPC methods are vi.fn()), re-created before each test via `beforeEach`. When adding new IPC methods to `ghostAPI`, add a matching `vi.fn()` mock to `setup.ts`.
+- **Electron-specific APIs** (`ipcMain`, `ipcRenderer`, `clipboard`, etc.) are not directly tested — test the renderer behaviour through `window.ghostAPI` mocks instead.
+- **Whisper and Ollama** are external services — mock their responses via `ghostAPI` mocks.
+- **Audio APIs** (`AudioContext`, `MediaStream`, `mediaDevices`) are stubbed in `setup.ts`.
+- **New components**: add a `src/__tests__/ComponentName.test.tsx` — see `MessageBubble.test.tsx` as a reference.
 
 ## Security Constraints
 
