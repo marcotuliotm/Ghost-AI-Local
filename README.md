@@ -49,17 +49,17 @@ Ollama is the local AI engine that powers Ghost AI. It runs large language model
 brew install ollama
 ```
 
-**Pull a model** (the default is `gemma3:4b`, ~3GB download):
+**Pull a model** (the default is `gemma4:latest`, ~3GB download):
 
 ```bash
-ollama pull gemma3:4b
+ollama pull gemma4:latest
 ```
 
 **Other recommended models:**
 
 | Model | Size | Best For |
 |-------|------|----------|
-| `gemma3:4b` | ~3GB | Default, fast, good for suggestions |
+| `gemma4:latest` | ~3GB | Default, fast, good for suggestions |
 | `llama3.2` | ~2GB | Good general purpose |
 | `mistral` | ~4GB | Strong reasoning and coding |
 | `gemma3:12b` | ~8GB | Higher quality, needs more RAM |
@@ -133,9 +133,10 @@ Ghost AI needs specific macOS permissions to function. Grant them when prompted,
 | Shortcut | Action |
 |----------|--------|
 | `Cmd+Shift+G` | Show/Hide overlay |
-| `Cmd+Shift+S` | Capture screenshot & analyze |
+| `Cmd+Shift+S` | Capture full screenshot & analyze |
+| `Cmd+Shift+X` | Capture cropped screen region & analyze |
 | `Cmd+Shift+A` | Focus text input |
-| `Esc` | Clear text input |
+| `Esc` | Clear text input (chat) / cancel crop selection |
 | `Enter` | Send message |
 
 ### Title Bar Buttons
@@ -144,7 +145,7 @@ Ghost AI needs specific macOS permissions to function. Grant them when prompted,
 |--------|--------|
 | Monitor icon | Opens a dropdown to switch the active Ollama model instantly |
 | Camera | Captures the full screen and sends it to Ollama for analysis |
-| Crop | Captures a selected screen region and sends it to Ollama |
+| Crop | Captures a selected screen region and sends it to Ollama (`Cmd+Shift+X`) |
 | Download | Saves the full chat to a `.txt` file with an AI-generated filename |
 | Trash | Clears all messages from the current conversation |
 | Gear | Opens the Settings panel |
@@ -166,11 +167,14 @@ Transcribed text appears in real time. **Drag the bottom edge** of the transcrip
 
 | Button | Action |
 |--------|--------|
-| **Suggest reply** | AI suggests a natural response to continue the conversation |
+| **Suggest reply** | AI suggests a natural response to continue the conversation (uses the `Suggest Reply Prompt` template from Settings, with `{{transcript}}` substituted) |
 | **Summarize** | AI summarizes the transcription into bullet points |
-| **Auto** | Automatically sends each transcribed chunk to AI for suggestions |
-| **Save** | Exports transcription to a `.txt` file |
+| **Translate PT** | AI translates the transcription to Brazilian Portuguese |
+| **Auto** | When on, automatically sends each new chunk of transcription to AI for suggestions at the configured Auto interval (10-120s) |
+| **Save** | Exports transcription to a `.txt` file with an AI-generated filename |
 | **Clear** | Clears the accumulated transcription |
+
+> macOS may kill system-audio streams after ~20 minutes (ScreenCaptureKit timeout). When this happens, the overlay automatically reconnects the stream without losing the accumulated transcript.
 
 ### Chat Messages
 
@@ -216,8 +220,9 @@ Access via the gear icon or tray menu:
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Ollama Base URL | Ollama API endpoint | `http://localhost:11434` |
-| Model | Active LLM model (also switchable from the title bar) | `gemma3:4b` |
+| Model | Active LLM model (also switchable from the title bar) | `gemma4:latest` |
 | System Prompt | Instructions for the AI | English, concise, contextual |
+| Suggest Reply Prompt | Template used by Suggest Reply and Auto modes (`{{transcript}}` placeholder is replaced with the live transcription) | `The other person said: "{{transcript}}"\n\nSuggest a natural response...` |
 | Opacity | Window transparency | 90% |
 | Font Size | UI text size in pixels | 12px |
 | Transcription Interval | Seconds between Whisper processing | 10s (3-30s range) |
