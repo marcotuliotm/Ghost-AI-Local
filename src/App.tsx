@@ -25,7 +25,7 @@ export default function App() {
   }, [])
 
   return (
-    <div className="w-full h-full p-1">
+    <div className="w-full h-full">
       <div className={view === 'overlay' ? 'w-full h-full' : 'hidden'}>
         <Overlay
           {...ghostAI}

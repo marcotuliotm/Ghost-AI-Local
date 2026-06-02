@@ -2,12 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Apple/macOS semantic theme tokens (space-separated RGB channels so Tailwind
+ * can apply <alpha-value>). Light is the default; dark is swapped automatically
+ * via prefers-color-scheme, which Chromium maps to the macOS system appearance.
+ */
 :root {
-  --ghost-bg: rgba(15, 15, 20, 0.85);
-  --ghost-surface: rgba(25, 25, 35, 0.9);
-  --ghost-border: rgba(255, 255, 255, 0.08);
-  --ghost-accent: #6366f1;
+  --accent: 0 122 255;        /* system blue (light) #007AFF */
+  --label: 0 0 0;             /* primary label */
+  --label-secondary: 72 72 74; /* darker, solid secondary text for light mode */
+  --separator: 0 0 0;         /* used at low opacity for hairlines */
+  --surface: 0 0 0;           /* control fills tint (dark-on-light in light mode) */
   --ghost-font-size: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: 10 132 255;     /* system blue (dark) #0A84FF */
+    --label: 255 255 255;
+    --label-secondary: 174 174 178;
+    --separator: 255 255 255;
+    --surface: 255 255 255;   /* light-on-dark fills in dark mode */
+  }
 }
 
 * {
@@ -21,11 +37,15 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  /* Transparent so the native window vibrancy material shows through. */
   background: transparent;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   font-size: var(--ghost-font-size);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgb(var(--label) / 0.9);
   user-select: none;
+  -webkit-font-smoothing: antialiased;
+  /* lowercase keyword: CSS values are case-insensitive; satisfies stylelint value-keyword-case */
+  text-rendering: optimizelegibility;
 }
 
 /* Custom scrollbar */
@@ -38,12 +58,12 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgb(var(--label) / 0.2);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgb(var(--label) / 0.32);
 }
 
 /* Title bar drag region */
@@ -69,11 +89,11 @@ html, body, #root {
 }
 
 .response-content code {
-  @apply bg-white/10 px-1 py-0.5 rounded text-xs font-mono;
+  @apply bg-ghost-fill-strong px-1 py-0.5 rounded text-xs font-mono;
 }
 
 .response-content pre {
-  @apply bg-black/40 p-2 rounded-md my-2 overflow-x-auto;
+  @apply bg-ghost-fill-strong p-2 rounded-md my-2 overflow-x-auto;
 }
 
 .response-content pre code {
@@ -101,14 +121,31 @@ html, body, #root {
 .cursor-blink::after {
   content: '|';
   animation: blink 1s step-end infinite;
-  color: var(--ghost-accent);
+  color: rgb(var(--accent));
 }
 
-/* Glass morphism */
+/* Window surface — transparent so the native vibrancy material shows through.
+   A hairline inner border keeps a crisp edge on the rounded native corners. */
 .glass {
-  background: rgba(15, 15, 20, 0.92);
-  border: 1px solid var(--ghost-border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  background: transparent;
+  border: 0.5px solid rgb(var(--separator) / 0.12);
+}
+
+/* Floating popover/menu — needs its own translucent material since it sits over
+   page content, not over the window vibrancy. Adapts to light/dark. */
+.popover {
+  background: rgb(245 245 247 / 0.92);
+  border: 0.5px solid rgb(var(--separator) / 0.12);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.18);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .popover {
+    background: rgb(40 40 43 / 0.92);
+    box-shadow: 0 8px 30px rgb(0 0 0 / 0.44);
+  }
 }
 
 /* Indeterminate progress bar */

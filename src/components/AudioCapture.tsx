@@ -618,7 +618,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
             <div className="w-2 h-2 rounded-full bg-ghost-accent animate-pulse" />
             <span className="text-[9px] text-ghost-text-muted">{progressMessage}</span>
           </div>
-          <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
+          <div className="w-full bg-ghost-fill rounded-full h-1 overflow-hidden">
             {progress > 0 ? (
               <div
                 className="bg-ghost-accent h-1 rounded-full transition-all duration-300"
@@ -643,17 +643,17 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
 
       {/* Source selector + main controls */}
       <div className="flex items-center gap-2">
-        {/* Audio source toggle (only when idle) */}
+        {/* Audio source toggle (only when idle) — macOS segmented control style */}
         {status === 'idle' && whisperReady && (
-          <div className="flex rounded-lg overflow-hidden border border-ghost-border">
+          <div className="flex gap-0.5 p-0.5 rounded-lg bg-ghost-fill">
             {(['mic', 'system', 'both'] as AudioSource[]).map((src) => (
               <button
                 key={src}
                 onClick={() => setAudioSource(src)}
-                className={`px-1.5 py-0.5 text-[8px] transition-colors ${
+                className={`px-2 py-0.5 text-[9px] rounded-md transition-all ${
                   audioSource === src
-                    ? 'bg-ghost-accent/20 text-ghost-accent'
-                    : 'bg-white/5 text-ghost-text-muted hover:bg-white/10'
+                    ? 'bg-ghost-surface text-ghost-text shadow-sm font-medium'
+                    : 'text-ghost-text-muted hover:text-ghost-text'
                 }`}
                 title={sourceIcons[src]}
               >
@@ -673,8 +673,8 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
               : status === 'error'
                 ? 'bg-ghost-warning/20 hover:bg-ghost-warning/30'
                 : whisperReady
-                  ? 'bg-white/5 hover:bg-white/10'
-                  : 'bg-white/5 opacity-30'
+                  ? 'bg-ghost-fill hover:bg-ghost-fill-strong'
+                  : 'bg-ghost-fill opacity-30'
           } disabled:opacity-30 disabled:cursor-not-allowed`}
           title={
             !whisperReady ? 'Waiting for Whisper...'
@@ -720,7 +720,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
             <div className="flex items-end gap-px h-3">
               {[0.15, 0.3, 0.5, 0.7, 0.85].map((t, i) => (
                 <div key={i}
-                  className={`w-0.5 rounded-full transition-all duration-75 ${audioLevel > t ? 'bg-ghost-error' : 'bg-white/10'}`}
+                  className={`w-0.5 rounded-full transition-all duration-75 ${audioLevel > t ? 'bg-ghost-error' : 'bg-ghost-fill-strong'}`}
                   style={{ height: `${40 + i * 15}%` }}
                 />
               ))}
@@ -757,7 +757,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
             <button
               onClick={() => setAutoSend(a => !a)}
               className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
-                autoSend ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-white/5 text-ghost-text-muted'
+                autoSend ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
               }`}
               title="Automatically send transcription to Ollama at the configured interval"
             >
@@ -767,7 +767,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={() => setAutoSendInterval(v => Math.max(10, v - 5))}
-                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-white/5 text-ghost-text-muted hover:bg-white/10 transition-colors"
+                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Decrease auto-send interval"
                 >
                   -
@@ -777,7 +777,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
                 </span>
                 <button
                   onClick={() => setAutoSendInterval(v => Math.min(120, v + 5))}
-                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-white/5 text-ghost-text-muted hover:bg-white/10 transition-colors"
+                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Increase auto-send interval"
                 >
                   +
@@ -794,7 +794,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
           <div
             ref={transcriptScrollRef}
             onScroll={handleTranscriptScroll}
-            className="bg-white/5 border border-ghost-border rounded-lg px-2 py-1.5 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
+            className="bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1.5 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
             title="Drag the bottom edge to resize"
           >
             {transcript ? (
@@ -810,35 +810,35 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
               <button
                 onClick={handleSendTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] bg-ghost-accent/20 text-ghost-accent hover:bg-ghost-accent/30 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded text-[9px] font-medium bg-ghost-accent/15 dark:bg-ghost-accent/25 text-ghost-accent hover:bg-ghost-accent/25 dark:hover:bg-ghost-accent/35 disabled:opacity-30 transition-colors"
               >
                 Suggest reply
               </button>
               <button
                 onClick={handleSummarizeTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded text-[9px] font-medium bg-purple-500/15 dark:bg-purple-500/25 text-purple-700 dark:text-purple-300 hover:bg-purple-500/25 dark:hover:bg-purple-500/35 disabled:opacity-30 transition-colors"
               >
                 Summarize
               </button>
               <button
                 onClick={handleTranslateTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded text-[9px] font-medium bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25 dark:hover:bg-blue-500/35 disabled:opacity-30 transition-colors"
               >
                 Translate PT
               </button>
               <button
                 onClick={handleSaveTranscript}
                 disabled={isSavingTranscript}
-                className="px-2 py-0.5 rounded text-[9px] bg-ghost-success/20 text-ghost-success hover:bg-ghost-success/30 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded text-[9px] font-medium bg-green-500/15 dark:bg-green-500/25 text-green-700 dark:text-green-300 hover:bg-green-500/25 dark:hover:bg-green-500/35 disabled:opacity-30 transition-colors"
                 title="Save transcription to .txt"
               >
                 {isSavingTranscript ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={handleClearTranscript}
-                className="px-2 py-0.5 rounded text-[9px] bg-white/5 text-ghost-text-muted hover:bg-white/10 transition-colors"
+                className="px-2 py-0.5 rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
               >
                 Clear
               </button>

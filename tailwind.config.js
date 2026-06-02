@@ -7,18 +7,23 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Semantic tokens backed by CSS variables (see globals.css). These adapt
+        // to the macOS light/dark appearance automatically via prefers-color-scheme.
         ghost: {
-          bg: 'rgba(15, 15, 20, 0.85)',
-          surface: 'rgba(25, 25, 35, 0.9)',
-          border: 'rgba(255, 255, 255, 0.08)',
-          'border-hover': 'rgba(255, 255, 255, 0.15)',
-          accent: '#6366f1',
-          'accent-hover': '#818cf8',
-          text: 'rgba(255, 255, 255, 0.9)',
-          'text-muted': 'rgba(255, 255, 255, 0.5)',
-          success: '#22c55e',
-          warning: '#f59e0b',
-          error: '#ef4444',
+          accent: 'rgb(var(--accent) / <alpha-value>)',
+          'accent-hover': 'rgb(var(--accent) / 0.85)',
+          text: 'rgb(var(--label) / <alpha-value>)',
+          'text-muted': 'rgb(var(--label-secondary) / <alpha-value>)',
+          border: 'rgb(var(--separator) / 0.12)',
+          'border-hover': 'rgb(var(--separator) / 0.22)',
+          // Control fills (replace the old hardcoded white/x utilities)
+          fill: 'rgb(var(--surface) / 0.06)',
+          'fill-strong': 'rgb(var(--surface) / 0.12)',
+          surface: 'rgb(var(--surface) / 0.10)',
+          // Apple system status colors
+          success: '#34C759',
+          warning: '#FF9F0A',
+          error: '#FF453B',
         },
       },
       animation: {

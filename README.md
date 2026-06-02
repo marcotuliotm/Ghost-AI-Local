@@ -232,14 +232,12 @@ Access via the gear icon or tray menu:
 ## Building for Production
 
 ```bash
-# macOS
 npm run dist:mac
-
-# Windows
-npm run dist:win
 ```
 
 Output goes to the `release/` directory.
+
+> Ghost AI is built and tested for **macOS only**. System audio capture depends on macOS ScreenCaptureKit, so Windows is not supported.
 
 ---
 

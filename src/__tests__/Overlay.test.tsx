@@ -189,12 +189,9 @@ describe('Overlay', () => {
       expect(analyzeScreenshotCrop).toHaveBeenCalledTimes(1)
     })
 
-    it('should call minimizeWindow when minimize is clicked', () => {
-      render(<Overlay {...defaultProps} />)
-
-      fireEvent.click(screen.getByTitle('Hide (Cmd+Shift+G)'))
-      expect(window.ghostAPI.minimizeWindow).toHaveBeenCalled()
-    })
+    // Minimize (hide) and close (quit) are now handled by the native macOS
+    // traffic-light buttons (titleBarStyle: 'hidden'), so they are no longer
+    // rendered in the DOM and are covered by the main process instead.
   })
 
   describe('model switcher', () => {

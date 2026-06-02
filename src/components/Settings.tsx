@@ -40,13 +40,13 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-2xl overflow-hidden animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-ghost-border drag-region">
+    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
+      {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
+      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="p-1 rounded hover:bg-white/10 transition-colors no-drag"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors no-drag"
           >
             <svg className="w-4 h-4 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -96,7 +96,7 @@ export function SettingsPanel({
             <select
               value={localSettings.selectedModel}
               onChange={e => setLocalSettings(prev => ({ ...prev, selectedModel: e.target.value }))}
-              className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent/50 transition-colors appearance-none"
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none"
             >
               {models.length === 0 && (
                 <option value="">No models found</option>
@@ -108,7 +108,7 @@ export function SettingsPanel({
               ))}
             </select>
             <p className="text-[9px] text-ghost-text-muted opacity-60">
-              Install models with: <code className="bg-white/10 px-1 rounded">ollama pull llama3.2</code>
+              Install models with: <code className="bg-ghost-fill-strong px-1 rounded">ollama pull llama3.2</code>
             </p>
           </div>
         </Section>
@@ -119,7 +119,7 @@ export function SettingsPanel({
             value={localSettings.systemPrompt}
             onChange={e => setLocalSettings(prev => ({ ...prev, systemPrompt: e.target.value }))}
             rows={6}
-            className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent/50 transition-colors resize-none"
+            className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none"
             placeholder="Instructions for the assistant..."
           />
         </Section>
@@ -130,11 +130,11 @@ export function SettingsPanel({
             value={localSettings.suggestReplyPrompt}
             onChange={e => setLocalSettings(prev => ({ ...prev, suggestReplyPrompt: e.target.value }))}
             rows={4}
-            className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent/50 transition-colors resize-none"
+            className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none"
             placeholder="Prompt sent when using Suggest Reply or Auto..."
           />
           <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
-            Use <code className="bg-white/10 px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode.
+            Use <code className="bg-ghost-fill-strong px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode.
           </p>
         </Section>
 
@@ -271,7 +271,7 @@ function Input({
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent/50 transition-colors"
+        className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
       />
     </div>
   )
@@ -281,7 +281,7 @@ function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
   return (
     <div className="flex items-center justify-between">
       <span>{label}</span>
-      <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-mono">
+      <kbd className="bg-ghost-fill-strong px-1.5 py-0.5 rounded text-[9px] font-mono">
         {shortcut}
       </kbd>
     </div>
