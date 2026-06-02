@@ -12,7 +12,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 | Frontend | React 18 + TypeScript 5 |
 | Bundler | Vite 6 + vite-plugin-electron |
 | Styling | TailwindCSS 3 |
-| LLM | Ollama (default model: `gemma3:4b`) |
+| LLM | Ollama (default model: `gemma4:latest`) |
 | Speech-to-Text | `@huggingface/transformers` v4 with `onnx-community/whisper-tiny` |
 | Package manager | npm |
 | Build/Dist | electron-builder (DMG + ZIP for macOS, NSIS for Windows) |
@@ -30,10 +30,10 @@ Ghost-AI-Local/
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
-│   │   ├── AudioCapture.tsx  # Audio capture with source toggle, PCM, Whisper transcription
+│   │   ├── AudioCapture.tsx  # Audio capture with source toggle, PCM, Whisper transcription, Auto mode, auto-restart on stream death
 │   │   ├── ChatInput.tsx     # Text input with send
-│   │   ├── MessageBubble.tsx # Chat message display
-│   │   ├── Settings.tsx      # Settings panel (model, prompt, opacity, interval)
+│   │   ├── MessageBubble.tsx # Chat message display with per-message copy button
+│   │   ├── Settings.tsx      # Settings panel (model, system prompt, suggest-reply prompt, opacity, font size, interval)
 │   │   └── HelpPanel.tsx     # Help reference (shortcuts, buttons, descriptions)
 │   ├── hooks/
 │   │   ├── useGhostAI.ts     # Core hook: Ollama streaming, settings, connection check
@@ -120,8 +120,9 @@ npm run dist:win   # Build + package Windows NSIS
 ```typescript
 interface Settings {
   ollamaBaseUrl: string        // default: 'http://localhost:11434'
-  selectedModel: string        // default: 'gemma3:4b'
+  selectedModel: string        // default: 'gemma4:latest'
   systemPrompt: string         // Ghost AI system prompt
+  suggestReplyPrompt: string   // template used by Suggest Reply / Auto; '{{transcript}}' is replaced at call time
   opacity: number              // window opacity 0-1 (default 0.9)
   fontSize: number             // UI font size in px (default 12)
   language: string             // default: 'pt-BR' (legacy, currently unused)
@@ -162,7 +163,13 @@ The transcript div uses `resize-y` with Tailwind classes (`h-24 min-h-[48px] max
 `Overlay.tsx` receives `models` (from `useGhostAI`) and `updateSettings` props. The model-switcher dropdown calls `updateSettings({ selectedModel })` directly — no navigation to Settings required.
 
 ### Auto button uses `useRef` to avoid stale closures
-The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instead, `autoSendRef = useRef(autoSend)` is kept in sync, and the interval callback reads `autoSendRef.current`.
+The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instead, `autoSendRef = useRef(autoSend)` is kept in sync, and the interval callback reads `autoSendRef.current`. The Auto interval itself is a separate ref (`autoSendIntervalRef`, 10-120s) so changing the cadence from the UI restarts the timer without reloading Whisper.
+
+### Audio stream auto-restart (macOS ScreenCaptureKit)
+System-audio capture via `getDisplayMedia({ audio: 'loopback' })` can be killed by macOS after ~20 minutes (ScreenCaptureKit timeout). When the underlying track emits `onended`, `AudioCapture` sets `streamDied = true`, which triggers a `useEffect` that tears down the dead audio graph and re-requests the streams for the previously selected source — without clearing the accumulated transcript, the auto-send timer, or the duration counter.
+
+### Tray and crop window
+`createTray()` is gated behind `!VITE_DEV_SERVER_URL` (triggers `SetApplicationIsDaemon` on unsigned dev builds). The crop window created by `captureScreenshotCrop` runs an inline `data:` URL page with a fullscreen canvas, hides the main window during selection, and restores its bounds + visibility on finish.
 
 ### Tray is production-only
 Creating a `Tray` in dev mode triggers `SetApplicationIsDaemon` errors on unsigned macOS builds. The tray and dock-hiding are gated behind `!VITE_DEV_SERVER_URL`.
@@ -236,7 +243,8 @@ Electron 39+ (a newer Chromium engine) breaks system-audio loopback on recent ma
 | Shortcut | Action |
 |----------|--------|
 | `Cmd+Shift+G` | Toggle overlay visibility (show/hide) |
-| `Cmd+Shift+S` | Capture screenshot and send to Ollama for analysis |
+| `Cmd+Shift+S` | Capture full screenshot and send to Ollama for analysis |
+| `Cmd+Shift+X` | Open a fullscreen crop overlay, capture selected region, send to Ollama for analysis |
 | `Cmd+Shift+A` | Focus the chat text input (shows overlay if hidden) |
 
 ## Testing
