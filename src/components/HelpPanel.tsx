@@ -4,13 +4,13 @@ interface HelpPanelProps {
 
 export function HelpPanel({ onBack }: HelpPanelProps) {
   return (
-    <div className="w-full h-full flex flex-col glass rounded-2xl overflow-hidden animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-ghost-border drag-region">
+    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
+      {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
+      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="p-1 rounded hover:bg-white/10 transition-colors no-drag"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors no-drag"
           >
             <svg className="w-4 h-4 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -121,8 +121,8 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
               icon={
                 <div className="flex rounded-lg overflow-hidden border border-ghost-border">
                   <span className="px-1 py-0.5 text-[7px] bg-ghost-accent/20 text-ghost-accent">Mic</span>
-                  <span className="px-1 py-0.5 text-[7px] bg-white/5">System</span>
-                  <span className="px-1 py-0.5 text-[7px] bg-white/5">Both</span>
+                  <span className="px-1 py-0.5 text-[7px] bg-ghost-fill">System</span>
+                  <span className="px-1 py-0.5 text-[7px] bg-ghost-fill">Both</span>
                 </div>
               }
               label="Audio Source"
@@ -145,9 +145,9 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={
                 <div className="flex items-center gap-0.5">
-                  <span className="px-1 py-0.5 rounded text-[8px] bg-white/5 text-ghost-text-muted">-</span>
+                  <span className="px-1 py-0.5 rounded text-[8px] bg-ghost-fill text-ghost-text-muted">-</span>
                   <span className="text-[8px] text-ghost-text-muted">30s</span>
-                  <span className="px-1 py-0.5 rounded text-[8px] bg-white/5 text-ghost-text-muted">+</span>
+                  <span className="px-1 py-0.5 rounded text-[8px] bg-ghost-fill text-ghost-text-muted">+</span>
                 </div>
               }
               label="Auto Interval (10-120s)"
@@ -174,7 +174,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
               description="Saves the transcription to a .txt file with an AI-generated filename"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-white/10 text-ghost-text-muted">Clear</span>}
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Clear</span>}
               label="Clear"
               description="Clears the accumulated transcription"
             />
@@ -219,7 +219,7 @@ function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-ghost-text-muted">{label}</span>
-      <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-mono text-ghost-text">
+      <kbd className="bg-ghost-fill-strong px-1.5 py-0.5 rounded text-[9px] font-mono text-ghost-text">
         {shortcut}
       </kbd>
     </div>

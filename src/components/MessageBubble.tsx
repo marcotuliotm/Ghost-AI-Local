@@ -34,7 +34,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         className={`group max-w-[90%] rounded-xl px-3 py-2 ${
           isUser
             ? 'bg-ghost-accent/20 text-ghost-text'
-            : 'bg-white/5 text-ghost-text'
+            : 'bg-ghost-fill text-ghost-text'
         }`}
       >
         {/* Role indicator */}
@@ -57,7 +57,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           {message.content && !message.isStreaming && (
             <button
               onClick={handleCopy}
-              className="ml-auto p-0.5 rounded text-ghost-text-muted opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
+              className="ml-auto p-0.5 rounded text-ghost-text-muted opacity-0 group-hover:opacity-100 hover:bg-ghost-fill-strong transition-all"
               title={copied ? 'Copied!' : 'Copy message'}
             >
               {copied ? (

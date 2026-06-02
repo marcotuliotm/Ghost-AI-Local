@@ -35,7 +35,7 @@ describe('AudioCapture', () => {
       render(<AudioCapture {...defaultProps} />)
       await waitFor(() => {
         const systemButton = screen.getByText('System')
-        expect(systemButton.className).toContain('ghost-accent')
+        expect(systemButton.className).toContain('bg-ghost-surface')
       })
     })
 
@@ -46,7 +46,7 @@ describe('AudioCapture', () => {
       })
       const micButton = screen.getByText('Mic')
       fireEvent.click(micButton)
-      expect(micButton.className).toContain('ghost-accent')
+      expect(micButton.className).toContain('bg-ghost-surface')
     })
 
     it('should toggle to both when Both is clicked', async () => {
@@ -56,7 +56,7 @@ describe('AudioCapture', () => {
       })
       const bothButton = screen.getByText('Both')
       fireEvent.click(bothButton)
-      expect(bothButton.className).toContain('ghost-accent')
+      expect(bothButton.className).toContain('bg-ghost-surface')
     })
 
     it('should show record button when whisper ready', async () => {

@@ -165,30 +165,30 @@ export function Overlay({
   }, [messages, settings, isConnected, isSaving])
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-2xl overflow-hidden animate-fade-in">
-      {/* Title Bar */}
+    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
+      {/* Title Bar — pl clears the native macOS traffic-light buttons (top-left) */}
       <div
-        className="drag-region flex items-center justify-between px-3 py-2 border-b border-ghost-border"
+        className="drag-region flex items-center justify-between pl-[78px] pr-3 h-11 border-b border-ghost-border"
         onMouseDown={handleDragStart}
       >
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-ghost-success' : 'bg-ghost-error'} animate-pulse-dot`} />
-          <span className="text-[10px] text-ghost-text-muted font-medium tracking-wider uppercase">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-ghost-success' : 'bg-ghost-error'} animate-pulse-dot`} />
+          <span className="text-xs font-semibold text-ghost-text">
             Ghost AI
           </span>
           {isConnected && (
-            <span className="text-[9px] text-ghost-text-muted opacity-60">
+            <span className="text-[10px] text-ghost-text-muted truncate">
               {settings.selectedModel}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1 no-drag">
+        <div className="flex items-center gap-0.5 no-drag">
           {/* Model switcher */}
           <div className="relative" ref={modelMenuRef}>
             <button
               onClick={() => setShowModelMenu(prev => !prev)}
-              className="p-1 rounded hover:bg-white/10 transition-colors"
+              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
               title="Change model"
             >
               <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -197,7 +197,7 @@ export function Overlay({
             </button>
 
             {showModelMenu && (
-              <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto glass rounded-lg border border-ghost-border shadow-lg z-50 py-1">
+              <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto popover rounded-lg z-50 py-1">
                 {models.length === 0 && (
                   <div className="px-3 py-2 text-[10px] text-ghost-text-muted">No models found</div>
                 )}
@@ -208,7 +208,7 @@ export function Overlay({
                       updateSettings({ selectedModel: model.name })
                       setShowModelMenu(false)
                     }}
-                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-white/10 transition-colors flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
                       model.name === settings.selectedModel ? 'text-ghost-accent' : 'text-ghost-text-muted'
                     }`}
                   >
@@ -223,7 +223,7 @@ export function Overlay({
           {/* Screenshot full */}
           <button
             onClick={analyzeScreenshot}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
             title="Capture full screen (Cmd+Shift+S)"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -235,7 +235,7 @@ export function Overlay({
           {/* Screenshot crop */}
           <button
             onClick={analyzeScreenshotCrop}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
             title="Capture screen region (Cmd+Shift+X)"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -247,7 +247,7 @@ export function Overlay({
           <button
             onClick={handleSaveConversation}
             disabled={messages.length === 0 || isSaving}
-            className="p-1 rounded hover:bg-white/10 transition-colors disabled:opacity-30"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors disabled:opacity-30"
             title="Save conversation to .txt"
           >
             {isSaving ? (
@@ -264,7 +264,7 @@ export function Overlay({
           {/* Clear chat */}
           <button
             onClick={clearChat}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
             title="Clear chat"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -275,7 +275,7 @@ export function Overlay({
           {/* Settings */}
           <button
             onClick={onOpenSettings}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
             title="Settings"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -287,33 +287,11 @@ export function Overlay({
           {/* Help */}
           <button
             onClick={onOpenHelp}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
+            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
             title="Help - Shortcuts & buttons"
           >
             <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-
-          {/* Minimize */}
-          <button
-            onClick={() => window.ghostAPI.minimizeWindow()}
-            className="p-1 rounded hover:bg-white/10 transition-colors"
-            title="Hide (Cmd+Shift+G)"
-          >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-            </svg>
-          </button>
-
-          {/* Close / Quit */}
-          <button
-            onClick={() => window.ghostAPI.closeWindow()}
-            className="p-1 rounded hover:bg-red-500/60 transition-colors"
-            title="Quit"
-          >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
@@ -340,15 +318,15 @@ export function Overlay({
               <div className="mt-3 space-y-1.5 text-[9px] text-ghost-text-muted opacity-50 w-full max-w-[220px]">
                 <div className="flex justify-between">
                   <span>Show/Hide overlay</span>
-                  <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+G</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+G</kbd>
                 </div>
                 <div className="flex justify-between">
                   <span>Capture screenshot</span>
-                  <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+S</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+S</kbd>
                 </div>
                 <div className="flex justify-between">
                   <span>Focus input</span>
-                  <kbd className="bg-white/10 px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+A</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">Cmd+Shift+A</kbd>
                 </div>
               </div>
             </div>

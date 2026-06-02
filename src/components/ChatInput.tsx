@@ -51,7 +51,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
                     : 'Ask something... (Cmd+Shift+A)'
               }
               disabled={!isConnected || isStreaming}
-              className="w-full bg-white/5 border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent/50 transition-colors disabled:opacity-40"
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors disabled:opacity-40"
               autoComplete="off"
               spellCheck={false}
             />

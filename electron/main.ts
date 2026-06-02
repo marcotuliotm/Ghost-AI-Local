@@ -46,12 +46,19 @@ function createWindow() {
     height: 680,
     x: width - 440,
     y: 60,
-    frame: false,
-    transparent: true,
+    // macOS-native chrome: hidden title bar exposes the real traffic-light
+    // buttons (red/yellow/green) in the top-left corner.
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 14 },
     alwaysOnTop: true,
     resizable: true,
-    hasShadow: false,
+    hasShadow: true,
+    roundedCorners: true,
     backgroundColor: '#00000000',
+    // Native macOS vibrancy: real frosted-glass material that blurs the desktop
+    // behind the window and automatically adapts to the system light/dark mode.
+    vibrancy: 'under-window',
+    visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -81,6 +88,12 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  // Native red traffic-light button closes the window → quit the app
+  // (keeps the existing "close = quit" semantics for this single-window overlay).
+  mainWindow.on('close', () => {
+    app.quit()
   })
 
   mainWindow.on('minimize', () => {
