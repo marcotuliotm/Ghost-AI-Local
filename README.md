@@ -2,7 +2,7 @@
 
 A local, anonymous AI assistant that runs entirely on your machine. Real-time suggestions, audio transcription, and screen analysis -- zero cloud, zero telemetry.
 
-![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-38.8.6-47848F?logo=electron&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
