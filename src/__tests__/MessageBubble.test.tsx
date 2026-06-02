@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
 import { MessageBubble } from '../components/MessageBubble'
 import type { ChatMessage } from '../types'
 
@@ -75,6 +75,24 @@ describe('MessageBubble', () => {
     it('should not show screenshot when not present', () => {
       render(<MessageBubble message={createMessage()} />)
       expect(screen.queryByAltText('Screenshot')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('copy button', () => {
+    it('should copy the message content to the clipboard when clicked', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+
+      render(<MessageBubble message={createMessage({ content: 'Copy me', isStreaming: false })} />)
+      fireEvent.click(screen.getByTitle('Copy message'))
+
+      expect(writeText).toHaveBeenCalledWith('Copy me')
+      await waitFor(() => expect(screen.getByTitle('Copied!')).toBeInTheDocument())
+    })
+
+    it('should not render the copy button while streaming', () => {
+      render(<MessageBubble message={createMessage({ content: 'partial', isStreaming: true })} />)
+      expect(screen.queryByTitle('Copy message')).not.toBeInTheDocument()
     })
   })
 
