@@ -2,7 +2,7 @@
 
 A local, anonymous AI assistant that runs entirely on your machine. Real-time suggestions, audio transcription, and screen analysis -- zero cloud, zero telemetry.
 
-![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -17,10 +17,13 @@ Ghost AI is a floating overlay that sits on top of your screen and provides AI-p
 
 - **100% Local & Anonymous** -- No data leaves your machine. No telemetry, analytics, or tracking.
 - **Real-time Audio Transcription** -- Local Whisper model transcribes audio from your microphone, system audio (meetings/calls), or both simultaneously.
+- **Resizable Transcript Box** -- Drag the bottom edge of the transcript area to adjust its height on the fly.
 - **AI Suggestions** -- Ollama generates contextual reply suggestions based on live transcription.
 - **Conversation Summarization** -- Summarize transcribed conversations into bullet points.
 - **Screenshot Analysis** -- Capture and analyze your screen content for code, presentations, or conversations.
 - **Floating Overlay** -- Always-on-top transparent window that stays visible during any activity.
+- **Quick Model Switching** -- Switch the active Ollama model from the title bar without opening Settings.
+- **Per-message Copy** -- Copy any chat message to the clipboard with a single click.
 - **Conversation Export** -- Save chats and transcriptions to `.txt` files with AI-generated filenames.
 
 ---
@@ -139,13 +142,15 @@ Ghost AI needs specific macOS permissions to function. Grant them when prompted,
 
 | Button | Action |
 |--------|--------|
-| Compact/Expand | Minimizes the UI to just the text input, or expands to show everything |
-| Camera | Captures the screen and sends it to Ollama for analysis |
+| Monitor icon | Opens a dropdown to switch the active Ollama model instantly |
+| Camera | Captures the full screen and sends it to Ollama for analysis |
+| Crop | Captures a selected screen region and sends it to Ollama |
 | Download | Saves the full chat to a `.txt` file with an AI-generated filename |
 | Trash | Clears all messages from the current conversation |
 | Gear | Opens the Settings panel |
 | Question mark | Opens the Help panel with full reference |
 | Minus | Hides the window (use `Cmd+Shift+G` to bring it back) |
+| ✕ | Quits the app |
 
 ### Audio Transcription
 
@@ -157,7 +162,7 @@ Select your audio source and click the record button:
 | **System** | Desktop audio via ScreenCaptureKit | Meetings, calls, videos |
 | **Both** | Mic + system mixed | Full conversation capture |
 
-Transcribed text appears in real time. Use the action buttons:
+Transcribed text appears in real time. **Drag the bottom edge** of the transcript box to resize it vertically. Use the action buttons:
 
 | Button | Action |
 |--------|--------|
@@ -166,6 +171,10 @@ Transcribed text appears in real time. Use the action buttons:
 | **Auto** | Automatically sends each transcribed chunk to AI for suggestions |
 | **Save** | Exports transcription to a `.txt` file |
 | **Clear** | Clears the accumulated transcription |
+
+### Chat Messages
+
+Each message bubble has a **copy button** (appears on hover, top-right corner) that copies the message text to the clipboard. A ✓ checkmark confirms the copy.
 
 ### Quick Actions (Chat)
 
@@ -207,9 +216,10 @@ Access via the gear icon or tray menu:
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Ollama Base URL | Ollama API endpoint | `http://localhost:11434` |
-| Model | Active LLM model | `gemma3:4b` |
+| Model | Active LLM model (also switchable from the title bar) | `gemma3:4b` |
 | System Prompt | Instructions for the AI | English, concise, contextual |
 | Opacity | Window transparency | 90% |
+| Font Size | UI text size in pixels | 12px |
 | Transcription Interval | Seconds between Whisper processing | 10s (3-30s range) |
 
 ---
@@ -297,7 +307,8 @@ ghost-ai/
 - **`net.fetch` override** -- Electron's Chromium network stack is used for model downloads because Node's undici fetch fails on HuggingFace's 302 redirect chain.
 - **Externalized from Vite** -- `@huggingface/transformers` and `onnxruntime-node` are loaded at runtime via dynamic `import()` from `node_modules`.
 - **Silence detection** (RMS threshold 0.002) and **hallucination filtering** prevent Whisper from generating false output on silence/noise.
-- **Permission handler** only grants `media`, `microphone`, and `screen` permissions -- nothing else.
+- **Permission handler** only grants `media`, `microphone`, and `screen` permissions -- nothing else. Clipboard writes are routed through a native IPC channel (`clipboard-write`) instead of the web clipboard API.
+- **Electron is pinned to 38.8.6** -- Electron 39+ breaks system-audio loopback on recent macOS (loopback track goes live-but-silent). Do **not** run `npm audit fix --force`; it will upgrade to 42 and silently break audio.
 
 ---
 
