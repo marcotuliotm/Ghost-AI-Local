@@ -8,7 +8,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Electron 38.8.6 (pinned — see note below) |
+| Framework | Electron 42.3.2 (see audio-loopback note below) |
 | Frontend | React 18 + TypeScript 5 |
 | Bundler | Vite 6 + vite-plugin-electron |
 | Styling | TailwindCSS 3 |
@@ -177,8 +177,14 @@ Creating a `Tray` in dev mode triggers `SetApplicationIsDaemon` errors on unsign
 ### Permission handler is restricted
 `setPermissionRequestHandler` only allows `media`, `microphone`, and `screen` permissions. All other permission requests are denied. Notably, the web clipboard API (`navigator.clipboard`) is blocked by this — clipboard writes are routed through the native `clipboard-write` IPC channel instead.
 
-### Electron version is pinned at 38.8.6
-Electron 39+ (a newer Chromium engine) breaks system-audio loopback on recent macOS: the loopback track is created but stays live-but-silent, so the level meter never moves and no audio is captured. 38.8.6 is the highest version where loopback still works. The version is pinned exactly in `package.json` (no caret). **Do not run `npm audit fix --force`** — it upgrades to Electron 42 and silently breaks system audio.
+### Electron 39+ needs CoreAudio Tap disabled for system-audio loopback
+On Electron 39+ (Chromium 142+) system-audio loopback comes up *live but silent* — the level meter never moves and no audio is captured. Root cause: Chromium 142 made Apple's new **CoreAudio Tap** API (`MacCatapLoopbackAudioForScreenShare`) the default for loopback. That API needs a brand-new `NSAudioCaptureUsageDescription` permission that can't be queried, so it fails silently with no fallback to the old API. The fix is to disable that feature at startup, **before app ready**, in `electron/main.ts`:
+
+```ts
+app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')
+```
+
+This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen Recording permission the app already requests. With that switch, `setDisplayMediaRequestHandler` returning `audio: 'loopback'` works on Electron 42. The version no longer needs to be held back at 38.x — it's pinned exactly in `package.json` only for build reproducibility. Ref: [electron/electron#49607](https://github.com/electron/electron/issues/49607). (Alternative future-proof fix: add `NSAudioCaptureUsageDescription` to the Info.plist and let users grant the new CoreAudio Tap permission instead of disabling it.)
 
 ## Adding New Features
 

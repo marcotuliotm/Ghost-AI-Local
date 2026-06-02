@@ -17,6 +17,16 @@ import {
 import path from 'path'
 import fs from 'fs'
 
+// Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
+// Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
+// by default. That path requires a brand-new `NSAudioCaptureUsageDescription` permission
+// that can't be queried, so it fails silently — the loopback track comes up "live but
+// silent" (no level, no audio) and there is no fallback to the old API.
+// Disabling this feature makes Chromium fall back to the ScreenCaptureKit path, which uses
+// the Screen Recording permission the app already requests. MUST be set before app is ready.
+// Ref: https://github.com/electron/electron/issues/49607
+app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isOverlayVisible = true
@@ -673,10 +683,8 @@ app.whenReady().then(() => {
   })
 
   // Handle getDisplayMedia requests - capture system audio via loopback (macOS 13+ ScreenCaptureKit)
-  // NOTE: Pin Electron to 38.8.6 (see package.json). Electron 39+ (newer Chromium)
-  // breaks system-audio loopback on recent macOS: the loopback track is created but
-  // stays live-but-silent. 38.8.6 is the newest Electron where it still works.
-  // Do NOT run `npm audit fix --force` — it jumps to 42 and silently breaks audio.
+  // NOTE: On Electron 39+ this only works because the CoreAudio Tap feature is disabled at
+  // startup (see `disable-features` at the top of this file), forcing the ScreenCaptureKit path.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
       if (sources.length > 0) {

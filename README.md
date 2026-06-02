@@ -2,7 +2,7 @@
 
 A local, anonymous AI assistant that runs entirely on your machine. Real-time suggestions, audio transcription, and screen analysis -- zero cloud, zero telemetry.
 
-![Electron](https://img.shields.io/badge/Electron-38.8.6-47848F?logo=electron&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-42.3.2-47848F?logo=electron&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -313,7 +313,7 @@ ghost-ai/
 - **Externalized from Vite** -- `@huggingface/transformers` and `onnxruntime-node` are loaded at runtime via dynamic `import()` from `node_modules`.
 - **Silence detection** (RMS threshold 0.002) and **hallucination filtering** prevent Whisper from generating false output on silence/noise.
 - **Permission handler** only grants `media`, `microphone`, and `screen` permissions -- nothing else. Clipboard writes are routed through a native IPC channel (`clipboard-write`) instead of the web clipboard API.
-- **Electron is pinned to 38.8.6** -- Electron 39+ breaks system-audio loopback on recent macOS (loopback track goes live-but-silent). Do **not** run `npm audit fix --force`; it will upgrade to 42 and silently break audio.
+- **System-audio loopback fix** -- Electron 39+ (Chromium 142+) defaults to Apple's CoreAudio Tap API for loopback, which fails silently without the new `NSAudioCaptureUsageDescription` permission (loopback track goes live-but-silent). `electron/main.ts` disables it at startup via `app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')`, forcing the ScreenCaptureKit path that uses Screen Recording permission. See [electron/electron#49607](https://github.com/electron/electron/issues/49607).
 
 ---
 
