@@ -44,7 +44,8 @@ html, body, #root {
   color: rgb(var(--label) / 0.9);
   user-select: none;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  /* lowercase keyword: CSS values are case-insensitive; satisfies stylelint value-keyword-case */
+  text-rendering: optimizelegibility;
 }
 
 /* Custom scrollbar */
