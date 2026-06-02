@@ -79,15 +79,26 @@ describe('MessageBubble', () => {
   })
 
   describe('copy button', () => {
-    it('should copy the message content to the clipboard when clicked', async () => {
-      const writeText = vi.fn().mockResolvedValue(undefined)
-      Object.assign(navigator, { clipboard: { writeText } })
-
+    it('should copy the message content via the native clipboard when clicked', async () => {
       render(<MessageBubble message={createMessage({ content: 'Copy me', isStreaming: false })} />)
       fireEvent.click(screen.getByTitle('Copy message'))
 
-      expect(writeText).toHaveBeenCalledWith('Copy me')
+      expect(window.ghostAPI.copyText).toHaveBeenCalledWith('Copy me')
       await waitFor(() => expect(screen.getByTitle('Copied!')).toBeInTheDocument())
+    })
+
+    it('should fall back to the web clipboard when ghostAPI is unavailable', async () => {
+      const original = window.ghostAPI
+      ;(window as any).ghostAPI = undefined
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.assign(navigator, { clipboard: { writeText } })
+
+      render(<MessageBubble message={createMessage({ content: 'Web copy', isStreaming: false })} />)
+      fireEvent.click(screen.getByTitle('Copy message'))
+
+      expect(writeText).toHaveBeenCalledWith('Web copy')
+      await waitFor(() => expect(screen.getByTitle('Copied!')).toBeInTheDocument())
+      ;(window as any).ghostAPI = original
     })
 
     it('should not render the copy button while streaming', () => {

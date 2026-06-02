@@ -31,6 +31,7 @@ const createMockGhostAPI = () => ({
   whisperTranscribe: vi.fn().mockResolvedValue({ success: true, text: 'transcribed text' }),
   whisperStatus: vi.fn().mockResolvedValue({ status: 'idle' }),
   saveConversation: vi.fn().mockResolvedValue({ success: true, path: '/test/path.txt' }),
+  copyText: vi.fn().mockResolvedValue(true),
   onWhisperProgress: vi.fn().mockReturnValue(() => {}),
   onStreamChunk: vi.fn().mockReturnValue(() => {}),
   onStreamDone: vi.fn().mockReturnValue(() => {}),

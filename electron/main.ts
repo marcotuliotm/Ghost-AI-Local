@@ -12,6 +12,7 @@ import {
   session,
   net,
   dialog,
+  clipboard,
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -633,6 +634,12 @@ function setupIPC() {
     if (whisperLoading) return { status: 'loading' }
     if (whisperError) return { status: 'error', error: whisperError }
     return { status: 'idle' }
+  })
+
+  // Copy text to the system clipboard (native, bypasses web clipboard permissions)
+  ipcMain.handle('clipboard-write', (_event, text: string) => {
+    clipboard.writeText(text ?? '')
+    return true
   })
 
   // Save conversation to .txt file
