@@ -12,7 +12,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const handleCopy = useCallback(async () => {
     if (!message.content) return
     try {
-      await navigator.clipboard.writeText(message.content)
+      // Prefer Electron's native clipboard (web clipboard perms are restricted
+      // by the app's permission handler); fall back to the web API in a browser.
+      if (window.ghostAPI?.copyText) {
+        await window.ghostAPI.copyText(message.content)
+      } else {
+        await navigator.clipboard.writeText(message.content)
+      }
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {

@@ -62,6 +62,9 @@ const api = {
   saveConversation: (payload: { content: string; suggestedName: string }) =>
     ipcRenderer.invoke('save-conversation', payload),
 
+  // Clipboard (native, via main process)
+  copyText: (text: string) => ipcRenderer.invoke('clipboard-write', text),
+
   onWhisperProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => {
     const handler = (_event: any, data: any) => callback(data)
     ipcRenderer.on('whisper-progress', handler)

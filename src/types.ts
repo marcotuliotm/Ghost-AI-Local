@@ -47,6 +47,9 @@ export interface GhostAPI {
   saveConversation: (payload: { content: string; suggestedName: string }) =>
     Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>
 
+  // Clipboard
+  copyText: (text: string) => Promise<boolean>
+
   // Events
   onStreamChunk: (callback: (chunk: string) => void) => () => void
   onStreamDone: (callback: (fullResponse: string) => void) => () => void
