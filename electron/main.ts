@@ -27,6 +27,12 @@ import fs from 'fs'
 // Ref: https://github.com/electron/electron/issues/49607
 app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')
 
+// Avoid the macOS "ghost-ai Safe Storage" keychain prompt. Chromium stores an
+// encryption key in the login keychain to encrypt its local network/cookie data;
+// since Ghost AI keeps nothing sensitive on disk (settings are in-memory, no
+// cookies/secrets), use a mock keychain so the OS never prompts for the password.
+app.commandLine.appendSwitch('use-mock-keychain')
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isOverlayVisible = true
