@@ -96,6 +96,7 @@ export interface Settings {
   fontSize: number
   language: string
   transcriptionInterval: number
+  speakerThreshold: number // cosine-similarity threshold for speaker separation (0.5-0.95)
 }
 
 declare global {

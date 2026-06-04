@@ -18,6 +18,7 @@ Rules:
   fontSize: 12,
   language: 'pt-BR',
   transcriptionInterval: 10,
+  speakerThreshold: 0.85,
 }
 
 export function useGhostAI() {

@@ -11,6 +11,7 @@ const defaultProps = {
     selectedModel: 'gemma4:latest',
     ollamaBaseUrl: 'http://localhost:11434',
     transcriptionInterval: 10,
+    speakerThreshold: 0.85,
   },
 }
 

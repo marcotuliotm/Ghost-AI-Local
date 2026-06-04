@@ -10,8 +10,10 @@ const defaultSettings: Settings = {
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response.',
   opacity: 0.9,
+  fontSize: 12,
   language: 'pt-BR',
   transcriptionInterval: 10,
+  speakerThreshold: 0.85,
 }
 
 const defaultModels: OllamaModel[] = [
@@ -82,6 +84,11 @@ describe('SettingsPanel', () => {
     it('should show transcription interval', () => {
       render(<SettingsPanel {...defaultProps} />)
       expect(screen.getByText(/Transcription interval: 10s/)).toBeInTheDocument()
+    })
+
+    it('should show speaker separation slider', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      expect(screen.getByText(/Speaker separation: 0.85/)).toBeInTheDocument()
     })
 
     it('should show keyboard shortcuts', () => {
