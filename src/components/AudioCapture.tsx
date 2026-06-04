@@ -7,7 +7,7 @@ interface AudioCaptureProps {
   onTranslate: (text: string) => void
   onTranscriptChange?: (text: string) => void
   isConnected: boolean
-  settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number }
+  settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number; speakerThreshold: number }
 }
 
 type CaptureStatus = 'idle' | 'requesting' | 'listening' | 'error'
@@ -21,12 +21,12 @@ interface TranscriptSegment {
   text: string
 }
 
-// Cosine-similarity threshold for grouping system-audio chunks into the same
-// speaker. Embeddings are L2-normalized, so dot product == cosine similarity.
+// Default cosine-similarity threshold for grouping system-audio chunks into the
+// same speaker. Embeddings are L2-normalized, so dot product == cosine similarity.
 // wavlm-base-plus-sv was tuned around 0.86 (same speaker scores above, different
 // speakers below). Lower → speakers merge into one; higher → one person splits
-// into several. This is the main accuracy knob.
-const SPEAKER_SIM_THRESHOLD = 0.85
+// into several. User-tunable via Settings (settings.speakerThreshold).
+const DEFAULT_SPEAKER_THRESHOLD = 0.85
 
 // Known Whisper hallucination patterns when audio is silence/noise
 const HALLUCINATION_PATTERNS = [
@@ -144,6 +144,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
 
   // Online speaker clustering state (system audio only)
   const speakerCentroidsRef = useRef<{ label: string; centroid: number[]; count: number }[]>([])
+  const speakerThresholdRef = useRef(settings.speakerThreshold ?? DEFAULT_SPEAKER_THRESHOLD)
 
   const streamsRef = useRef<MediaStream[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -185,6 +186,11 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   useEffect(() => {
     diarizeRef.current = diarize
   }, [diarize])
+
+  // Keep speaker-threshold ref in sync so Settings changes take effect live
+  useEffect(() => {
+    speakerThresholdRef.current = settings.speakerThreshold ?? DEFAULT_SPEAKER_THRESHOLD
+  }, [settings.speakerThreshold])
 
   // Keep last transcript + notify parent when transcript changes
   useEffect(() => {
@@ -322,7 +328,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       const sim = dot(embedding, centroids[i].centroid)
       if (sim > bestSim) { bestSim = sim; best = i }
     }
-    if (best >= 0 && bestSim >= SPEAKER_SIM_THRESHOLD) {
+    if (best >= 0 && bestSim >= speakerThresholdRef.current) {
       const c = centroids[best]
       const n = c.count
       const merged = c.centroid.map((v, j) => (v * n + embedding[j]) / (n + 1))

@@ -203,6 +203,26 @@ export function SettingsPanel({
                 Time between each Whisper audio processing (3s to 30s). Lower values = more responsive, but uses more CPU.
               </p>
             </div>
+            <div>
+              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+                Speaker separation: {(localSettings.speakerThreshold ?? 0.85).toFixed(2)}
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="0.95"
+                step="0.01"
+                value={localSettings.speakerThreshold ?? 0.85}
+                onChange={e => {
+                  const speakerThreshold = parseFloat(e.target.value)
+                  setLocalSettings(prev => ({ ...prev, speakerThreshold }))
+                }}
+                className="w-full accent-ghost-accent"
+              />
+              <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+                Sensitivity for the "Speakers" mode (A/B/C). Higher = separates more speakers; lower = merges similar voices into one. Default 0.85.
+              </p>
+            </div>
           </div>
         </Section>
 

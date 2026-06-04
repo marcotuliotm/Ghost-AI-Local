@@ -232,6 +232,7 @@ Access via the gear icon or tray menu:
 | Opacity | Window transparency | 90% |
 | Font Size | UI text size in pixels | 12px |
 | Transcription Interval | Seconds between Whisper processing | 10s (3-30s range) |
+| Speaker Separation | Sensitivity of "Speakers" mode (A/B/C). Higher separates more speakers; lower merges similar voices | 0.85 (0.50-0.95 range) |
 
 ---
 
@@ -316,7 +317,7 @@ ghost-ai/
 - **`net.fetch` override** -- Electron's Chromium network stack is used for model downloads because Node's undici fetch fails on HuggingFace's 302 redirect chain.
 - **Externalized from Vite** -- `@huggingface/transformers` and `onnxruntime-node` are loaded at runtime via dynamic `import()` from `node_modules`.
 - **Silence detection** (RMS threshold 0.002) and **hallucination filtering** prevent Whisper from generating false output on silence/noise.
-- **Speaker diarization** is hybrid and fully local: mic vs system is split by channel ("You" vs the other side), and system-audio chunks are fingerprinted by `Xenova/wavlm-base-plus-sv` (in the main process, like Whisper) then clustered online by cosine similarity into A/B/C. Audio and embeddings never leave the machine -- only the model weights are downloaded once from HuggingFace. The `SPEAKER_SIM_THRESHOLD` constant (0.85) in `AudioCapture.tsx` is the accuracy knob.
+- **Speaker diarization** is hybrid and fully local: mic vs system is split by channel ("You" vs the other side), and system-audio chunks are fingerprinted by `Xenova/wavlm-base-plus-sv` (in the main process, like Whisper) then clustered online by cosine similarity into A/B/C. Audio and embeddings never leave the machine -- only the model weights are downloaded once from HuggingFace. The clustering sensitivity is the **Speaker Separation** setting (`settings.speakerThreshold`, default 0.85) -- read live via a ref so changes apply to the next chunk without restarting capture.
 - **Permission handler** only grants `media`, `microphone`, and `screen` permissions -- nothing else. Clipboard writes are routed through a native IPC channel (`clipboard-write`) instead of the web clipboard API.
 - **System-audio loopback fix** -- Electron 39+ (Chromium 142+) defaults to Apple's CoreAudio Tap API for loopback, which fails silently without the new `NSAudioCaptureUsageDescription` permission (loopback track goes live-but-silent). `electron/main.ts` disables it at startup via `app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')`, forcing the ScreenCaptureKit path that uses Screen Recording permission. See [electron/electron#49607](https://github.com/electron/electron/issues/49607).
 
