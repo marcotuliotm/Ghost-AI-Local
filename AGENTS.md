@@ -132,6 +132,7 @@ interface Settings {
   fontSize: number             // UI font size in px (default 12)
   language: string             // default: 'pt-BR' (legacy, currently unused)
   transcriptionInterval: number // seconds between transcriptions 3-30 (default 10)
+  speakerThreshold: number     // cosine-similarity threshold for speaker separation 0.5-0.95 (default 0.85)
 }
 
 interface ChatMessage {
@@ -149,9 +150,9 @@ interface ChatMessage {
 ### Speaker diarization (hybrid: channel + voice clustering)
 "Speakers" mode in `AudioCapture.tsx` labels who is talking. It combines two signals:
 1. **Channel separation** — mic and system audio are captured into **separate PCM buffers** (`micChunksRef` / `systemChunksRef`) instead of being merged. Mic = "You"; system = the other side.
-2. **Voice clustering (A/B/C)** — each system-audio chunk is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by cosine similarity (`SPEAKER_SIM_THRESHOLD`, dot product since vectors are normalized); new speakers get the next letter (A, B, C…).
+2. **Voice clustering (A/B/C)** — each system-audio chunk is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by cosine similarity (threshold = `settings.speakerThreshold`, read via `speakerThresholdRef`; dot product since vectors are normalized); new speakers get the next letter (A, B, C…).
 
-The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker chunks merge). A formatted string (`You: … / A: …`) is what gets passed to Ollama, saved, and used as chat context. If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per transcription chunk, so speakers that overlap within a chunk share a label; the `SPEAKER_SIM_THRESHOLD` constant is the accuracy knob to tune.
+The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker chunks merge). A formatted string (`You: … / A: …`) is what gets passed to Ollama, saved, and used as chat context. If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per transcription chunk, so speakers that overlap within a chunk share a label; the **Speaker Separation** setting (`settings.speakerThreshold`, default 0.85, exposed as a Settings slider) is the accuracy knob — higher separates more speakers, lower merges similar voices, and it applies live to the next chunk.
 
 ### Whisper runs in main process
 The `@huggingface/transformers` library requires `fs` access for ONNX runtime. The renderer process (sandboxed) cannot access `fs`. All Whisper inference happens in the main process, with audio sent as `ArrayBuffer` over IPC.
@@ -246,7 +247,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 - **`gemma3:4b` does NOT support audio input** - Audio must always be transcribed to text first via Whisper, then sent as text to Ollama.
 - **Whisper model downloads ~118MB on first use** from HuggingFace, cached in `~/.cache/huggingface` after that. First launch is slow.
-- **Speaker model (`wavlm-base-plus-sv`) downloads on first "Speakers" toggle** from HuggingFace, cached under `userData/whisper-models`. The model only runs in the main process; audio/embeddings never leave the machine. Tuning lives in `SPEAKER_SIM_THRESHOLD` (AudioCapture.tsx): too low merges different speakers into one, too high splits one person into many.
+- **Speaker model (`wavlm-base-plus-sv`) downloads on first "Speakers" toggle** from HuggingFace, cached under `userData/whisper-models`. The model only runs in the main process; audio/embeddings never leave the machine. Tuning lives in the **Speaker Separation** Settings slider (`settings.speakerThreshold`): too low merges different speakers into one, too high splits one person into many.
 - **System audio on macOS requires Screen Recording permission** (not just microphone). The app uses `getDisplayMedia` with `audio: 'loopback'` via `setDisplayMediaRequestHandler`.
 - **macOS 13+ required** for system audio capture (ScreenCaptureKit).
 - **Silence detection threshold** is RMS 0.002 — audio below this is considered silence and skipped for transcription.
