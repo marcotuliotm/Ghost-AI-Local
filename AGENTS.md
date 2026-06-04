@@ -14,6 +14,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 | Styling | TailwindCSS 3 |
 | LLM | Ollama (default model: `gemma4:latest`) |
 | Speech-to-Text | `@huggingface/transformers` v4 with `onnx-community/whisper-tiny` |
+| Speaker ID (diarization) | `@huggingface/transformers` v4 with `Xenova/wavlm-base-plus-sv` |
 | Package manager | npm |
 | Build/Dist | electron-builder (DMG + ZIP for macOS, NSIS for Windows) |
 
@@ -82,7 +83,7 @@ npm run dist:win   # Build + package Windows NSIS
 ### Data Flow
 
 1. **Chat**: User input -> `useGhostAI.sendMessage()` -> IPC `ollama-chat-stream` -> main process `fetch()` to Ollama -> stream chunks back via `webContents.send('ollama-stream-chunk')` -> renderer updates message in real time
-2. **Audio**: Mic/System audio -> Web Audio API (PCM capture at 16kHz) -> IPC `whisper-transcribe` -> main process runs Whisper pipeline -> text returned -> displayed in AudioCapture transcript area
+2. **Audio**: Mic/System audio -> Web Audio API (per-channel PCM capture) -> resample to 16kHz -> IPC `whisper-transcribe` -> main process runs Whisper pipeline -> text returned. With "Speakers" on, system-audio chunks also go through IPC `embed-speaker` -> main process speaker-embedding model -> embedding clustered in the renderer into A/B/C. Result is displayed as labeled segments in the AudioCapture transcript area
 3. **Screenshot**: Global shortcut or button -> `desktopCapturer.getSources()` -> base64 dataURL -> sent to Ollama as context with analysis prompt
 
 ### IPC Channel Map
@@ -245,6 +246,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 - **`gemma3:4b` does NOT support audio input** - Audio must always be transcribed to text first via Whisper, then sent as text to Ollama.
 - **Whisper model downloads ~118MB on first use** from HuggingFace, cached in `~/.cache/huggingface` after that. First launch is slow.
+- **Speaker model (`wavlm-base-plus-sv`) downloads on first "Speakers" toggle** from HuggingFace, cached under `userData/whisper-models`. The model only runs in the main process; audio/embeddings never leave the machine. Tuning lives in `SPEAKER_SIM_THRESHOLD` (AudioCapture.tsx): too low merges different speakers into one, too high splits one person into many.
 - **System audio on macOS requires Screen Recording permission** (not just microphone). The app uses `getDisplayMedia` with `audio: 'loopback'` via `setDisplayMediaRequestHandler`.
 - **macOS 13+ required** for system audio capture (ScreenCaptureKit).
 - **Silence detection threshold** is RMS 0.002 — audio below this is considered silence and skipped for transcription.

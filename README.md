@@ -17,6 +17,7 @@ Ghost AI is a floating overlay that sits on top of your screen and provides AI-p
 
 - **100% Local & Anonymous** -- No data leaves your machine. No telemetry, analytics, or tracking.
 - **Real-time Audio Transcription** -- Local Whisper model transcribes audio from your microphone, system audio (meetings/calls), or both simultaneously.
+- **Speaker Separation (diarization)** -- Optional "Speakers" mode labels who is talking: your mic is "You", and the other side of the call is split by voice into Speaker A / B / C using a local speaker-embedding model. 100% on-device.
 - **Resizable Transcript Box** -- Drag the bottom edge of the transcript area to adjust its height on the fly.
 - **AI Suggestions** -- Ollama generates contextual reply suggestions based on live transcription.
 - **Conversation Summarization** -- Summarize transcribed conversations into bullet points.
@@ -161,12 +162,13 @@ Select your audio source and click the record button:
 |--------|-----------------|----------|
 | **Mic** | Your microphone | Dictation, voice notes |
 | **System** | Desktop audio via ScreenCaptureKit | Meetings, calls, videos |
-| **Both** | Mic + system mixed | Full conversation capture |
+| **Both** | Mic + system on separate channels | Full conversation capture |
 
 Transcribed text appears in real time. **Drag the bottom edge** of the transcript box to resize it vertically. Use the action buttons:
 
 | Button | Action |
 |--------|--------|
+| **Speakers** | Toggles speaker separation. Your mic is labeled "You"; system audio is split by voice into Speaker A / B / C. First use downloads a small local speaker model. Falls back to "Other" if the model isn't ready |
 | **Suggest reply** | AI suggests a natural response to continue the conversation (uses the `Suggest Reply Prompt` template from Settings, with `{{transcript}}` substituted) |
 | **Summarize** | AI summarizes the transcription into bullet points |
 | **Translate PT** | AI translates the transcription to Brazilian Portuguese |
@@ -193,19 +195,23 @@ After the first AI response, quick action buttons appear:
 ## How It Works
 
 ```
-Audio Source (Mic/System/Both)
+Audio Source (Mic / System / Both)
     |
     v
-Raw PCM capture (ScriptProcessorNode)
+Per-channel Raw PCM capture (ScriptProcessorNode)   mic = "You" | system = other side
     |
     v
 Resample to 16kHz + Silence detection
     |
-    v
-Whisper (onnx-community/whisper-tiny, runs in main process)
+    +--> Whisper (onnx-community/whisper-tiny, main process) --> text
+    |
+    +--> [Speakers on] Speaker embedding (Xenova/wavlm-base-plus-sv, main process)
+    |         |
+    |         v
+    |    Online cosine-similarity clustering --> Speaker A / B / C
     |
     v
-Transcribed text
+Labeled transcript (You: ... / A: ...)
     |
     v
 Ollama (local LLM) --> Suggestions / Summaries
@@ -310,6 +316,7 @@ ghost-ai/
 - **`net.fetch` override** -- Electron's Chromium network stack is used for model downloads because Node's undici fetch fails on HuggingFace's 302 redirect chain.
 - **Externalized from Vite** -- `@huggingface/transformers` and `onnxruntime-node` are loaded at runtime via dynamic `import()` from `node_modules`.
 - **Silence detection** (RMS threshold 0.002) and **hallucination filtering** prevent Whisper from generating false output on silence/noise.
+- **Speaker diarization** is hybrid and fully local: mic vs system is split by channel ("You" vs the other side), and system-audio chunks are fingerprinted by `Xenova/wavlm-base-plus-sv` (in the main process, like Whisper) then clustered online by cosine similarity into A/B/C. Audio and embeddings never leave the machine -- only the model weights are downloaded once from HuggingFace. The `SPEAKER_SIM_THRESHOLD` constant (0.85) in `AudioCapture.tsx` is the accuracy knob.
 - **Permission handler** only grants `media`, `microphone`, and `screen` permissions -- nothing else. Clipboard writes are routed through a native IPC channel (`clipboard-write`) instead of the web clipboard API.
 - **System-audio loopback fix** -- Electron 39+ (Chromium 142+) defaults to Apple's CoreAudio Tap API for loopback, which fails silently without the new `NSAudioCaptureUsageDescription` permission (loopback track goes live-but-silent). `electron/main.ts` disables it at startup via `app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')`, forcing the ScreenCaptureKit path that uses Screen Recording permission. See [electron/electron#49607](https://github.com/electron/electron/issues/49607).
 
