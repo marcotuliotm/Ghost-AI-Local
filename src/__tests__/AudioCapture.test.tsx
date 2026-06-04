@@ -67,6 +67,22 @@ describe('AudioCapture', () => {
         expect(recordButton).toBeInTheDocument()
       })
     })
+
+    it('should render the Speakers (diarization) toggle', async () => {
+      render(<AudioCapture {...defaultProps} />)
+      await waitFor(() => {
+        expect(screen.getByText('Speakers')).toBeInTheDocument()
+      })
+    })
+
+    it('should load the speaker-embedding model when Speakers is enabled', async () => {
+      render(<AudioCapture {...defaultProps} />)
+      const toggle = await screen.findByText('Speakers')
+      fireEvent.click(toggle)
+      await waitFor(() => {
+        expect(window.ghostAPI.embedLoad).toHaveBeenCalled()
+      })
+    })
   })
 
   describe('rendering with whisper loading', () => {

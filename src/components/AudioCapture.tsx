@@ -12,6 +12,21 @@ interface AudioCaptureProps {
 
 type CaptureStatus = 'idle' | 'requesting' | 'listening' | 'error'
 type AudioSource = 'mic' | 'system' | 'both'
+type Channel = 'mic' | 'system'
+
+// A piece of transcript attributed to a speaker. speaker '' means unlabeled
+// (diarization off) — rendered as a plain flowing paragraph.
+interface TranscriptSegment {
+  speaker: string // 'You' | 'A' | 'B' | 'C' | 'Other' | ''
+  text: string
+}
+
+// Cosine-similarity threshold for grouping system-audio chunks into the same
+// speaker. Embeddings are L2-normalized, so dot product == cosine similarity.
+// wavlm-base-plus-sv was tuned around 0.86 (same speaker scores above, different
+// speakers below). Lower → speakers merge into one; higher → one person splits
+// into several. This is the main accuracy knob.
+const SPEAKER_SIM_THRESHOLD = 0.85
 
 // Known Whisper hallucination patterns when audio is silence/noise
 const HALLUCINATION_PATTERNS = [
@@ -43,6 +58,34 @@ function hasAudioEnergy(audio: Float32Array, threshold = 0.002): boolean {
   return rms > threshold
 }
 
+function dot(a: number[], b: number[]): number {
+  let s = 0
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) s += a[i] * b[i]
+  return s
+}
+
+// Format labeled segments into text for Ollama / save / context. Labels give
+// the LLM useful turn-taking context ("You: ... / Speaker A: ...").
+function formatSegments(segs: TranscriptSegment[]): string {
+  return segs
+    .map(s => (s.speaker ? `${s.speaker}: ${s.text}` : s.text))
+    .join('\n')
+    .trim()
+}
+
+// Visual style per speaker label
+function speakerChipClass(label: string): string {
+  switch (label) {
+    case 'You': return 'bg-ghost-accent/20 text-ghost-accent'
+    case 'A': return 'bg-green-500/20 text-green-700 dark:text-green-300'
+    case 'B': return 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+    case 'C': return 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+    case 'D': return 'bg-pink-500/20 text-pink-700 dark:text-pink-300'
+    default: return 'bg-ghost-fill-strong text-ghost-text-muted'
+  }
+}
+
 async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number): Promise<Float32Array> {
   if (fromSampleRate === 16000) return audioData
   const numOutputSamples = Math.round(audioData.length * 16000 / fromSampleRate)
@@ -58,14 +101,18 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
 }
 
 /**
- * AudioCapture - 100% local audio transcription.
+ * AudioCapture - 100% local audio transcription with speaker separation.
  *
- * Supports three audio sources:
- * - Mic: your microphone (what you say)
- * - System: desktop audio (meetings, videos, calls)
- * - Both: mic + system audio mixed together
+ * Sources:
+ * - Mic: your microphone (labeled "You")
+ * - System: desktop audio (meetings/videos) — diarized into Speaker A/B/C
+ * - Both: mic + system, captured on separate channels
  *
- * Flow: Audio source → Raw PCM → Whisper (main process) → Text → Ollama
+ * Hybrid diarization: mic vs system is split by channel ("You" vs the other
+ * side). When "Speakers" is enabled, system-audio chunks are additionally
+ * fingerprinted with a local speaker-embedding model and clustered into A/B/C.
+ *
+ * Flow: each channel → Raw PCM → Whisper (text) [+ embedding for system] → labeled transcript
  */
 export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
@@ -73,12 +120,18 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   const [errorMsg, setErrorMsg] = useState('')
   const [audioLevel, setAudioLevel] = useState(0)
   const [duration, setDuration] = useState(0)
-  const [transcript, setTranscript] = useState('')
+  const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [autoSend, setAutoSend] = useState(false)
   const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
   const [streamDied, setStreamDied] = useState(false)
+
+  // Speaker diarization (A/B/C) toggle + embedding model status
+  const [diarize, setDiarize] = useState(false)
+  const [embedStatus, setEmbedStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [embedProgress, setEmbedProgress] = useState(0)
+
   const autoSendRef = useRef(false)
   const autoSendIntervalRef = useRef(30)
   const autoSendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -86,20 +139,30 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   const onTranscriptionRef = useRef(onTranscription)
   const restartingRef = useRef(false)
   const audioSourceRef = useRef<AudioSource>('system')
+  const diarizeRef = useRef(false)
+  const embedReadyRef = useRef(false)
+
+  // Online speaker clustering state (system audio only)
+  const speakerCentroidsRef = useRef<{ label: string; centroid: number[]; count: number }[]>([])
 
   const streamsRef = useRef<MediaStream[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
-  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const processorsRef = useRef<ScriptProcessorNode[]>([])
   const animationFrameRef = useRef<number | null>(null)
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isListeningRef = useRef(false)
-  const audioChunksRef = useRef<Float32Array[]>([])
+  // Separate PCM buffers per channel so we can attribute speech to mic vs system
+  const micChunksRef = useRef<Float32Array[]>([])
+  const systemChunksRef = useRef<Float32Array[]>([])
   const transcribeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastTranscriptRef = useRef('')
   const transcriptScrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
 
   const { status: whisperStatus, progress, progressMessage, error: whisperError, loadModel, transcribe } = useWhisper()
+
+  // Derived plain-text transcript (with speaker labels) for consumers
+  const transcriptText = formatSegments(segments)
 
   // Load Whisper model on mount
   useEffect(() => {
@@ -118,10 +181,57 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     audioSourceRef.current = audioSource
   }, [audioSource])
 
-  // Notify parent when transcript changes (so ChatInput can use it as context)
+  // Keep diarize ref in sync (read inside interval callbacks)
   useEffect(() => {
-    onTranscriptChange?.(transcript)
-  }, [transcript, onTranscriptChange])
+    diarizeRef.current = diarize
+  }, [diarize])
+
+  // Keep last transcript + notify parent when transcript changes
+  useEffect(() => {
+    lastTranscriptRef.current = transcriptText
+    onTranscriptChange?.(transcriptText)
+  }, [transcriptText, onTranscriptChange])
+
+  // Speaker-embedding model: listen for load progress
+  useEffect(() => {
+    const cleanup = window.ghostAPI.onEmbedProgress((data) => {
+      if (data.status === 'download') {
+        setEmbedStatus('loading')
+        setEmbedProgress(data.progress)
+      } else if (data.status === 'ready') {
+        setEmbedStatus('ready')
+        setEmbedProgress(100)
+      } else if (data.status === 'error') {
+        setEmbedStatus('error')
+      }
+    })
+    return cleanup
+  }, [])
+
+  // Keep embedReady ref in sync
+  useEffect(() => {
+    embedReadyRef.current = embedStatus === 'ready'
+  }, [embedStatus])
+
+  const loadEmbed = useCallback(async () => {
+    if (embedStatus === 'ready' || embedStatus === 'loading') return
+    setEmbedStatus('loading')
+    setEmbedProgress(0)
+    try {
+      const r = await window.ghostAPI.embedLoad()
+      if (r.status === 'ready') setEmbedStatus('ready')
+      else if (r.status === 'error') setEmbedStatus('error')
+    } catch {
+      setEmbedStatus('error')
+    }
+  }, [embedStatus])
+
+  // When diarization is turned on, preload the speaker-embedding model
+  useEffect(() => {
+    if (diarize && embedStatus === 'idle') {
+      loadEmbed()
+    }
+  }, [diarize, embedStatus, loadEmbed])
 
   // Auto-scroll the transcript box to the bottom as new text arrives,
   // unless the user has scrolled up to read earlier content.
@@ -130,7 +240,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     if (el && stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight
     }
-  }, [transcript])
+  }, [segments])
 
   // Track whether the user is near the bottom so we know to keep following
   const handleTranscriptScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -142,7 +252,6 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
   useEffect(() => {
     autoSendRef.current = autoSend
     if (autoSend && isListeningRef.current) {
-      // Start auto-send timer
       if (autoSendTimerRef.current) clearInterval(autoSendTimerRef.current)
       autoSendTimerRef.current = setInterval(() => {
         const text = lastTranscriptRef.current.trim()
@@ -152,7 +261,6 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
         }
       }, autoSendIntervalRef.current * 1000)
     } else {
-      // Stop auto-send timer
       if (autoSendTimerRef.current) {
         clearInterval(autoSendTimerRef.current)
         autoSendTimerRef.current = null
@@ -189,10 +297,10 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       clearInterval(durationIntervalRef.current)
       durationIntervalRef.current = null
     }
-    if (processorRef.current) {
-      processorRef.current.disconnect()
-      processorRef.current = null
+    for (const p of processorsRef.current) {
+      try { p.disconnect() } catch {}
     }
+    processorsRef.current = []
     if (audioContextRef.current) {
       try { audioContextRef.current.close() } catch {}
       audioContextRef.current = null
@@ -203,42 +311,161 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     streamsRef.current = []
   }, [])
 
-  const transcribeChunks = useCallback(async () => {
-    if (audioChunksRef.current.length === 0) return
-    if (isTranscribing) return
+  // Assign a speaker label (A/B/C...) to a system-audio embedding via online
+  // cosine-similarity clustering. Falls back to 'Other' if no embedding.
+  const assignSpeaker = useCallback((embedding: number[] | null): string => {
+    if (!embedding) return 'Other'
+    const centroids = speakerCentroidsRef.current
+    let best = -1
+    let bestSim = -2
+    for (let i = 0; i < centroids.length; i++) {
+      const sim = dot(embedding, centroids[i].centroid)
+      if (sim > bestSim) { bestSim = sim; best = i }
+    }
+    if (best >= 0 && bestSim >= SPEAKER_SIM_THRESHOLD) {
+      const c = centroids[best]
+      const n = c.count
+      const merged = c.centroid.map((v, j) => (v * n + embedding[j]) / (n + 1))
+      let norm = 0
+      for (const v of merged) norm += v * v
+      norm = Math.sqrt(norm) || 1
+      c.centroid = merged.map(v => v / norm)
+      c.count = n + 1
+      return c.label
+    }
+    const label = String.fromCharCode(65 + centroids.length) // A, B, C, ...
+    centroids.push({ label, centroid: embedding.slice(), count: 1 })
+    return label
+  }, [])
 
-    const totalLength = audioChunksRef.current.reduce((acc, chunk) => acc + chunk.length, 0)
+  // Append a transcribed piece under a speaker label, merging consecutive
+  // pieces from the same speaker into one paragraph.
+  const appendSegment = useCallback((speaker: string, text: string) => {
+    setSegments(prev => {
+      const last = prev[prev.length - 1]
+      if (last && last.speaker === speaker) {
+        const updated = prev.slice()
+        updated[updated.length - 1] = { ...last, text: `${last.text} ${text}`.trim() }
+        return updated
+      }
+      return [...prev, { speaker, text }]
+    })
+  }, [])
+
+  // Transcribe one channel's accumulated PCM and attribute it to a speaker.
+  const transcribeChannel = useCallback(async (chunksRef: React.MutableRefObject<Float32Array[]>, channel: Channel) => {
+    const chunks = chunksRef.current
+    if (chunks.length === 0) return
+
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0)
     if (totalLength < 8000) return
 
     const combined = new Float32Array(totalLength)
     let offset = 0
-    for (const chunk of audioChunksRef.current) {
+    for (const chunk of chunks) {
       combined.set(chunk, offset)
       offset += chunk.length
     }
-    audioChunksRef.current = []
+    chunksRef.current = []
 
     if (!hasAudioEnergy(combined)) return
 
+    const sampleRate = audioContextRef.current?.sampleRate || 48000
+    const resampled = await resampleTo16kHz(combined, sampleRate)
+    const text = await transcribe(resampled)
+    if (!text || text.length === 0 || isHallucination(text)) return
+
+    // Decide the speaker label
+    let speaker = ''
+    if (diarizeRef.current) {
+      if (channel === 'mic') {
+        speaker = 'You'
+      } else {
+        // System audio → fingerprint + cluster into A/B/C (or 'Other' if model not ready)
+        let embedding: number[] | null = null
+        if (embedReadyRef.current) {
+          try {
+            const res = await window.ghostAPI.embedSpeaker(resampled.buffer as ArrayBuffer)
+            if (res.success && res.embedding) embedding = res.embedding
+          } catch { /* ignore embedding failures */ }
+        }
+        speaker = assignSpeaker(embedding)
+      }
+    }
+
+    appendSegment(speaker, text)
+  }, [transcribe, assignSpeaker, appendSegment])
+
+  // Run a transcription pass over whichever channels have audio
+  const runTranscription = useCallback(async () => {
+    if (isTranscribing) return
+    if (micChunksRef.current.length === 0 && systemChunksRef.current.length === 0) return
     setIsTranscribing(true)
     try {
-      const sampleRate = audioContextRef.current?.sampleRate || 48000
-      const resampled = await resampleTo16kHz(combined, sampleRate)
-      const text = await transcribe(resampled)
-
-      if (text && text.length > 0 && !isHallucination(text)) {
-        setTranscript(prev => {
-          const updated = prev ? `${prev} ${text}` : text
-          lastTranscriptRef.current = updated
-          return updated
-        })
-      }
+      // System first so its embedding call doesn't delay the (cheaper) mic text
+      await transcribeChannel(systemChunksRef, 'system')
+      await transcribeChannel(micChunksRef, 'mic')
     } catch (err: any) {
       console.error('Transcription error:', err)
     } finally {
       setIsTranscribing(false)
     }
-  }, [transcribe, isTranscribing])
+  }, [isTranscribing, transcribeChannel])
+
+  // Wire a single stream into the audio graph, capturing its PCM into the
+  // channel-specific buffer and feeding the shared level-meter analyser.
+  const wireStream = useCallback((stream: MediaStream, channel: Channel, audioContext: AudioContext, analyser: AnalyserNode) => {
+    const src = audioContext.createMediaStreamSource(stream)
+    src.connect(analyser)
+
+    const processor = audioContext.createScriptProcessor(4096, 1, 1)
+    processor.onaudioprocess = (e) => {
+      if (!isListeningRef.current) return
+      const inputData = e.inputBuffer.getChannelData(0)
+      const buf = channel === 'mic' ? micChunksRef : systemChunksRef
+      buf.current.push(new Float32Array(inputData))
+    }
+    src.connect(processor)
+    processor.connect(audioContext.destination)
+    processorsRef.current.push(processor)
+
+    // Detect when macOS kills the audio stream (ScreenCaptureKit timeout ~20 min)
+    for (const track of stream.getAudioTracks()) {
+      track.onended = () => {
+        console.warn('[AudioCapture] Audio track ended (OS killed stream)')
+        if (isListeningRef.current) setStreamDied(true)
+      }
+    }
+  }, [])
+
+  // Build the full capture graph for the selected source (used by start + restart)
+  const buildGraph = useCallback((streams: { stream: MediaStream; channel: Channel }[]) => {
+    const audioContext = new AudioContext()
+    audioContextRef.current = audioContext
+
+    const analyser = audioContext.createAnalyser()
+    analyser.fftSize = 256
+
+    for (const { stream, channel } of streams) {
+      wireStream(stream, channel, audioContext, analyser)
+    }
+
+    // Level visualization
+    const dataArray = new Uint8Array(analyser.frequencyBinCount)
+    const updateLevel = () => {
+      if (!isListeningRef.current) return
+      analyser.getByteFrequencyData(dataArray)
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
+      setAudioLevel(avg / 255)
+      animationFrameRef.current = requestAnimationFrame(updateLevel)
+    }
+    updateLevel()
+
+    // Transcribe at configured interval
+    transcribeIntervalRef.current = setInterval(() => {
+      runTranscription()
+    }, (settings.transcriptionInterval || 10) * 1000)
+  }, [wireStream, runTranscription, settings.transcriptionInterval])
 
   // Auto-restart when stream dies (macOS ScreenCaptureKit timeout ~20 min)
   useEffect(() => {
@@ -248,84 +475,33 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       restartingRef.current = true
       console.log('[AudioCapture] Stream died, auto-restarting...')
 
-      // Clean up dead resources without clearing transcript
       stopCapture()
       setStreamDied(false)
       setStatus('requesting')
       setErrorMsg('')
 
       try {
-        const streams: MediaStream[] = []
         const source = audioSourceRef.current
-
+        const streams: { stream: MediaStream; channel: Channel }[] = []
         if (source === 'mic' || source === 'both') {
-          streams.push(await getMicStream())
+          streams.push({ stream: await getMicStream(), channel: 'mic' })
         }
         if (source === 'system' || source === 'both') {
-          streams.push(await getSystemStream())
+          streams.push({ stream: await getSystemStream(), channel: 'system' })
         }
 
-        streamsRef.current = streams
+        streamsRef.current = streams.map(s => s.stream)
         isListeningRef.current = true
         setStatus('listening')
-        audioChunksRef.current = []
+        micChunksRef.current = []
+        systemChunksRef.current = []
 
-        // Re-wire audio pipeline
-        const audioContext = new AudioContext()
-        audioContextRef.current = audioContext
-
-        const merger = audioContext.createChannelMerger(1)
-        const analyser = audioContext.createAnalyser()
-        analyser.fftSize = 256
-
-        for (const stream of streams) {
-          const src = audioContext.createMediaStreamSource(stream)
-          src.connect(merger)
-          src.connect(analyser)
-
-          // Watch for track death again
-          for (const track of stream.getAudioTracks()) {
-            track.onended = () => {
-              console.warn('[AudioCapture] Audio track ended (OS killed stream)')
-              if (isListeningRef.current) {
-                setStreamDied(true)
-              }
-            }
-          }
-        }
-
-        const processor = audioContext.createScriptProcessor(4096, 1, 1)
-        processorRef.current = processor
-
-        processor.onaudioprocess = (e) => {
-          if (!isListeningRef.current) return
-          const inputData = e.inputBuffer.getChannelData(0)
-          audioChunksRef.current.push(new Float32Array(inputData))
-        }
-
-        merger.connect(processor)
-        processor.connect(audioContext.destination)
-
-        // Restart level visualization
-        const dataArray = new Uint8Array(analyser.frequencyBinCount)
-        const updateLevel = () => {
-          if (!isListeningRef.current) return
-          analyser.getByteFrequencyData(dataArray)
-          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
-          setAudioLevel(avg / 255)
-          animationFrameRef.current = requestAnimationFrame(updateLevel)
-        }
-        updateLevel()
+        buildGraph(streams)
 
         // Restart duration timer (continue from current duration, don't reset)
         durationIntervalRef.current = setInterval(() => {
           setDuration(d => d + 1)
         }, 1000)
-
-        // Restart transcription interval
-        transcribeIntervalRef.current = setInterval(() => {
-          transcribeChunks()
-        }, (settings.transcriptionInterval || 10) * 1000)
 
         // Restart auto-send timer if it was active
         if (autoSendRef.current) {
@@ -349,7 +525,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     }
 
     restartCapture()
-  }, [streamDied, stopCapture, transcribeChunks, settings.transcriptionInterval])
+  }, [streamDied, stopCapture, buildGraph])
 
   // Keep autoSendInterval ref in sync and restart auto-send timer if active
   useEffect(() => {
@@ -391,7 +567,6 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       audio: true,  // System audio via loopback (macOS 13+ ScreenCaptureKit)
     })
 
-    // Stop the video track immediately - we only need audio
     for (const track of stream.getVideoTracks()) {
       track.stop()
     }
@@ -413,84 +588,28 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     setStatus('requesting')
 
     try {
-      const streams: MediaStream[] = []
-
-      // Get streams based on selected source
+      const streams: { stream: MediaStream; channel: Channel }[] = []
       if (audioSource === 'mic' || audioSource === 'both') {
-        streams.push(await getMicStream())
+        streams.push({ stream: await getMicStream(), channel: 'mic' })
       }
       if (audioSource === 'system' || audioSource === 'both') {
-        streams.push(await getSystemStream())
+        streams.push({ stream: await getSystemStream(), channel: 'system' })
       }
 
-      streamsRef.current = streams
+      streamsRef.current = streams.map(s => s.stream)
       isListeningRef.current = true
       setStatus('listening')
       setDuration(0)
-      setTranscript('')
-      audioChunksRef.current = []
+      setSegments([])
+      speakerCentroidsRef.current = []
+      micChunksRef.current = []
+      systemChunksRef.current = []
 
-      // Create audio context and mix all streams together
-      const audioContext = new AudioContext()
-      audioContextRef.current = audioContext
+      buildGraph(streams)
 
-      // Merger: combine all audio sources into one
-      const merger = audioContext.createChannelMerger(1)
-
-      // Analyser for level visualization
-      const analyser = audioContext.createAnalyser()
-      analyser.fftSize = 256
-
-      for (const stream of streams) {
-        const source = audioContext.createMediaStreamSource(stream)
-        source.connect(merger)
-        source.connect(analyser)
-
-        // Detect when macOS kills the audio stream (ScreenCaptureKit timeout ~20 min)
-        for (const track of stream.getAudioTracks()) {
-          track.onended = () => {
-            console.warn('[AudioCapture] Audio track ended (OS killed stream)')
-            if (isListeningRef.current) {
-              setStreamDied(true)
-            }
-          }
-        }
-      }
-
-      // ScriptProcessor to capture raw PCM from merged audio
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
-      processorRef.current = processor
-
-      processor.onaudioprocess = (e) => {
-        if (!isListeningRef.current) return
-        const inputData = e.inputBuffer.getChannelData(0)
-        audioChunksRef.current.push(new Float32Array(inputData))
-      }
-
-      merger.connect(processor)
-      processor.connect(audioContext.destination)
-
-      // Audio level visualization
-      const dataArray = new Uint8Array(analyser.frequencyBinCount)
-      const updateLevel = () => {
-        if (!isListeningRef.current) return
-        analyser.getByteFrequencyData(dataArray)
-        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
-        setAudioLevel(avg / 255)
-        animationFrameRef.current = requestAnimationFrame(updateLevel)
-      }
-      updateLevel()
-
-      // Duration timer
       durationIntervalRef.current = setInterval(() => {
         setDuration(d => d + 1)
       }, 1000)
-
-      // Transcribe at configured interval
-      transcribeIntervalRef.current = setInterval(() => {
-        transcribeChunks()
-      }, (settings.transcriptionInterval || 10) * 1000)
-
     } catch (err: any) {
       setStatus('error')
       if (err.name === 'NotAllowedError') {
@@ -505,40 +624,41 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
         setErrorMsg(err.message || `Error: ${err}`)
       }
     }
-  }, [whisperStatus, audioSource, transcribeChunks])
+  }, [whisperStatus, audioSource, buildGraph])
 
   const handleStop = useCallback(async () => {
     stopCapture()
-    if (audioChunksRef.current.length > 0) {
-      await transcribeChunks()
+    if (micChunksRef.current.length > 0 || systemChunksRef.current.length > 0) {
+      await runTranscription()
     }
     setStatus('idle')
     setAudioLevel(0)
     setDuration(0)
-  }, [stopCapture, transcribeChunks])
+  }, [stopCapture, runTranscription])
 
   const handleSendTranscript = useCallback(() => {
-    if (!transcript.trim()) return
-    onTranscription(transcript.trim())
-  }, [transcript, onTranscription])
+    if (!transcriptText.trim()) return
+    onTranscription(transcriptText.trim())
+  }, [transcriptText, onTranscription])
 
   const handleSummarizeTranscript = useCallback(() => {
-    if (!transcript.trim()) return
-    onSummarize(transcript.trim())
-  }, [transcript, onSummarize])
+    if (!transcriptText.trim()) return
+    onSummarize(transcriptText.trim())
+  }, [transcriptText, onSummarize])
 
   const handleTranslateTranscript = useCallback(() => {
-    if (!transcript.trim()) return
-    onTranslate(transcript.trim())
-  }, [transcript, onTranslate])
+    if (!transcriptText.trim()) return
+    onTranslate(transcriptText.trim())
+  }, [transcriptText, onTranslate])
 
   const handleClearTranscript = useCallback(() => {
-    setTranscript('')
+    setSegments([])
+    speakerCentroidsRef.current = []
     lastTranscriptRef.current = ''
   }, [])
 
   const handleSaveTranscript = useCallback(async () => {
-    if (!transcript.trim() || isSavingTranscript) return
+    if (!transcriptText.trim() || isSavingTranscript) return
 
     setIsSavingTranscript(true)
     try {
@@ -546,7 +666,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       const dateStr = now.toISOString().slice(0, 10)
       const timeStr = now.toTimeString().slice(0, 5).replace(':', 'h')
 
-      const content = `Audio Transcription\nDate: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${timeStr}\nSource: ${audioSource === 'mic' ? 'Microphone' : audioSource === 'system' ? 'System Audio' : 'Mic + System'}\n\n${'='.repeat(50)}\n\n${transcript.trim()}\n`
+      const content = `Audio Transcription\nDate: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${timeStr}\nSource: ${audioSource === 'mic' ? 'Microphone' : audioSource === 'system' ? 'System Audio' : 'Mic + System'}\n\n${'='.repeat(50)}\n\n${transcriptText.trim()}\n`
 
       let suggestedName = `transcription_${dateStr}_${timeStr}`
 
@@ -560,7 +680,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
                 role: 'system',
                 content: 'Generate a very short filename (2-4 words, no spaces use underscores, lowercase, no extension, no special chars, english) that describes the topic of this transcription. Reply with ONLY the filename, nothing else.',
               },
-              { role: 'user', content: transcript.trim().slice(0, 500) },
+              { role: 'user', content: transcriptText.trim().slice(0, 500) },
             ],
           })
 
@@ -587,7 +707,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     } finally {
       setIsSavingTranscript(false)
     }
-  }, [transcript, audioSource, isConnected, settings, isSavingTranscript])
+  }, [transcriptText, audioSource, isConnected, settings, isSavingTranscript])
 
   const fmtDuration = (s: number) => {
     const m = Math.floor(s / 60)
@@ -596,6 +716,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
 
   const whisperReady = whisperStatus === 'ready'
   const whisperLoading = whisperStatus === 'loading'
+  const hasTranscript = segments.length > 0
 
   const sourceLabels: Record<AudioSource, string> = {
     mic: 'Mic',
@@ -641,6 +762,29 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
         </div>
       )}
 
+      {/* Speaker model loading progress */}
+      {diarize && embedStatus === 'loading' && (
+        <div className="space-y-1 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-ghost-accent animate-pulse" />
+            <span className="text-[9px] text-ghost-text-muted">Loading speaker model... {embedProgress > 0 ? `${embedProgress}%` : ''}</span>
+          </div>
+          <div className="w-full bg-ghost-fill rounded-full h-1 overflow-hidden">
+            {embedProgress > 0 ? (
+              <div className="bg-ghost-accent h-1 rounded-full transition-all duration-300" style={{ width: `${embedProgress}%` }} />
+            ) : (
+              <div className="bg-ghost-accent h-1 rounded-full w-1/3 animate-indeterminate" />
+            )}
+          </div>
+        </div>
+      )}
+      {diarize && embedStatus === 'error' && (
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-ghost-warning">Speaker model failed to load. Falling back to You/Other.</span>
+          <button onClick={loadEmbed} className="text-[9px] text-ghost-accent hover:underline">Retry</button>
+        </div>
+      )}
+
       {/* Source selector + main controls */}
       <div className="flex items-center gap-2">
         {/* Audio source toggle (only when idle) — macOS segmented control style */}
@@ -661,6 +805,19 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
               </button>
             ))}
           </div>
+        )}
+
+        {/* Speakers (diarization) toggle */}
+        {whisperReady && (status === 'idle' || status === 'listening') && (
+          <button
+            onClick={() => setDiarize(d => !d)}
+            className={`px-1.5 py-0.5 rounded-md text-[8px] transition-colors ${
+              diarize ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted hover:text-ghost-text'
+            }`}
+            title="Separate speakers (You / A / B / C). Labels the other side of the call by voice."
+          >
+            Speakers
+          </button>
         )}
 
         {/* Record button */}
@@ -691,7 +848,6 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
               }}
             />
           )}
-          {/* Mic icon for mic, speaker icon for system, both for both */}
           {audioSource === 'system' ? (
             <svg className={`w-3.5 h-3.5 ${
               status === 'listening' ? 'text-ghost-error' : status === 'error' ? 'text-ghost-warning' : whisperReady ? 'text-ghost-text-muted' : 'text-ghost-text-muted/30'
@@ -746,7 +902,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
         )}
 
         {status === 'idle' && whisperReady && (
-          <span className="text-[9px] text-ghost-text-muted opacity-50">
+          <span className="text-[9px] text-ghost-text-muted opacity-50 truncate">
             {sourceIcons[audioSource]}
           </span>
         )}
@@ -789,7 +945,7 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
       </div>
 
       {/* Transcript display — drag the bottom edge to resize vertically */}
-      {(transcript || status === 'listening') && (
+      {(hasTranscript || status === 'listening') && (
         <div className="space-y-1 animate-fade-in">
           <div
             ref={transcriptScrollRef}
@@ -797,15 +953,28 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
             className="bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1.5 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
             title="Drag the bottom edge to resize"
           >
-            {transcript ? (
-              <p className="text-[10px] text-ghost-text leading-relaxed">{transcript}</p>
+            {hasTranscript ? (
+              <div className="space-y-1">
+                {segments.map((seg, i) => (
+                  seg.speaker ? (
+                    <p key={i} className="text-[10px] leading-relaxed">
+                      <span className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle ${speakerChipClass(seg.speaker)}`}>
+                        {seg.speaker}
+                      </span>
+                      <span className="text-ghost-text">{seg.text}</span>
+                    </p>
+                  ) : (
+                    <p key={i} className="text-[10px] text-ghost-text leading-relaxed">{seg.text}</p>
+                  )
+                ))}
+              </div>
             ) : (
               <p className="text-[10px] text-ghost-text-muted/40 italic">
                 Transcription will appear here...
               </p>
             )}
           </div>
-          {transcript && (
+          {hasTranscript && (
             <div className="flex gap-1">
               <button
                 onClick={handleSendTranscript}

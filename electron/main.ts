@@ -42,6 +42,13 @@ let whisperPipeline: any = null
 let whisperLoading = false
 let whisperError: string | null = null
 
+// Speaker-embedding state (for diarization / labeling speakers A/B/C)
+let embedModel: any = null
+let embedProcessor: any = null
+let embedLoading = false
+let embedError: string | null = null
+const EMBED_MODEL = 'Xenova/wavlm-base-plus-sv'
+
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
 function createWindow() {
@@ -662,6 +669,116 @@ function setupIPC() {
     if (whisperPipeline) return { status: 'ready' }
     if (whisperLoading) return { status: 'loading' }
     if (whisperError) return { status: 'error', error: whisperError }
+    return { status: 'idle' }
+  })
+
+  // Speaker embedding - load model (lazy, like Whisper). Used for diarization:
+  // each audio chunk gets a voice "fingerprint" that the renderer clusters into
+  // Speaker A/B/C. 100% local; model is cached under userData/whisper-models.
+  ipcMain.handle('embed-load', async () => {
+    if (embedModel) return { status: 'ready' }
+    if (embedLoading) return { status: 'loading' }
+
+    embedLoading = true
+    embedError = null
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: any) => {
+      try {
+        return await (net.fetch as any)(input, init)
+      } catch {
+        return originalFetch(input, init)
+      }
+    }) as typeof globalThis.fetch
+
+    try {
+      const { AutoProcessor, AutoModel, env } = await import('@huggingface/transformers')
+
+      const cacheDir = path.join(app.getPath('userData'), 'whisper-models')
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
+      env.cacheDir = cacheDir
+      env.allowLocalModels = false
+
+      mainWindow?.webContents.send('embed-progress', {
+        status: 'download',
+        message: 'Loading speaker model...',
+        progress: 0,
+      })
+
+      embedProcessor = await AutoProcessor.from_pretrained(EMBED_MODEL)
+      embedModel = await AutoModel.from_pretrained(EMBED_MODEL, {
+        progress_callback: (data: any) => {
+          if (data.status === 'progress' && typeof data.progress === 'number') {
+            mainWindow?.webContents.send('embed-progress', {
+              status: 'download',
+              message: `Downloading speaker model... ${Math.round(data.progress)}%`,
+              progress: Math.round(data.progress),
+            })
+          }
+        },
+      })
+
+      embedLoading = false
+      globalThis.fetch = originalFetch
+      mainWindow?.webContents.send('embed-progress', {
+        status: 'ready',
+        message: 'Speaker model ready',
+        progress: 100,
+      })
+      return { status: 'ready' }
+    } catch (err: any) {
+      embedLoading = false
+      globalThis.fetch = originalFetch
+      embedError = err.message || 'Failed to load speaker model'
+      mainWindow?.webContents.send('embed-progress', {
+        status: 'error',
+        message: embedError,
+        progress: 0,
+      })
+      return { status: 'error', error: embedError }
+    }
+  })
+
+  // Speaker embedding - return a normalized embedding vector for a chunk of
+  // 16kHz audio (Float32Array over IPC). The renderer clusters these by cosine
+  // similarity to assign Speaker A/B/C labels.
+  ipcMain.handle('embed-speaker', async (_event, audioBuffer: ArrayBuffer) => {
+    if (!embedModel || !embedProcessor) {
+      return { success: false, error: 'Speaker model not loaded' }
+    }
+
+    try {
+      const audioData = new Float32Array(audioBuffer)
+      // Need ~1s+ of audio for a stable speaker embedding
+      if (audioData.length < 16000) {
+        return { success: false, error: 'audio too short' }
+      }
+
+      const inputs = await embedProcessor(audioData)
+      const output = await embedModel(inputs)
+      const tensor = output.embeddings ?? output.logits
+      if (!tensor?.data) {
+        return { success: false, error: 'no embedding produced' }
+      }
+
+      const vec = Array.from(tensor.data as Float32Array)
+      // L2-normalize so the renderer can use plain dot product as cosine similarity
+      let norm = 0
+      for (const v of vec) norm += v * v
+      norm = Math.sqrt(norm) || 1
+      const embedding = vec.map((v) => v / norm)
+
+      return { success: true, embedding }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Speaker embedding - get status
+  ipcMain.handle('embed-status', () => {
+    if (embedModel) return { status: 'ready' }
+    if (embedLoading) return { status: 'loading' }
+    if (embedError) return { status: 'error', error: embedError }
     return { status: 'idle' }
   })
 

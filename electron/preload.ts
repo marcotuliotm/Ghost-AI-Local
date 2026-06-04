@@ -58,6 +58,12 @@ const api = {
     ipcRenderer.invoke('whisper-transcribe', audioBuffer),
   whisperStatus: () => ipcRenderer.invoke('whisper-status'),
 
+  // Speaker embedding (diarization)
+  embedLoad: () => ipcRenderer.invoke('embed-load'),
+  embedSpeaker: (audioBuffer: ArrayBuffer) =>
+    ipcRenderer.invoke('embed-speaker', audioBuffer),
+  embedStatus: () => ipcRenderer.invoke('embed-status'),
+
   // Save conversation
   saveConversation: (payload: { content: string; suggestedName: string }) =>
     ipcRenderer.invoke('save-conversation', payload),
@@ -69,6 +75,12 @@ const api = {
     const handler = (_event: any, data: any) => callback(data)
     ipcRenderer.on('whisper-progress', handler)
     return () => ipcRenderer.removeListener('whisper-progress', handler)
+  },
+
+  onEmbedProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => {
+    const handler = (_event: any, data: any) => callback(data)
+    ipcRenderer.on('embed-progress', handler)
+    return () => ipcRenderer.removeListener('embed-progress', handler)
   },
 
   // Events from main process

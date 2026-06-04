@@ -30,7 +30,7 @@ Ghost-AI-Local/
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
-│   │   ├── AudioCapture.tsx  # Audio capture with source toggle, PCM, Whisper transcription, Auto mode, auto-restart on stream death
+│   │   ├── AudioCapture.tsx  # Audio capture: source toggle, per-channel PCM, Whisper transcription, speaker diarization (You/A/B/C), Auto mode, auto-restart on stream death
 │   │   ├── ChatInput.tsx     # Text input with send
 │   │   ├── MessageBubble.tsx # Chat message display with per-message copy button
 │   │   ├── Settings.tsx      # Settings panel (model, system prompt, suggest-reply prompt, opacity, font size, interval)
@@ -97,6 +97,10 @@ npm run dist:win   # Build + package Windows NSIS
 | `whisper-load` | renderer->main | invoke | Load Whisper model |
 | `whisper-transcribe` | renderer->main | invoke | Transcribe Float32Array audio |
 | `whisper-status` | renderer->main | invoke | Get current Whisper status |
+| `embed-load` | renderer->main | invoke | Load speaker-embedding model (diarization) |
+| `embed-speaker` | renderer->main | invoke | Return normalized speaker embedding for Float32Array audio |
+| `embed-status` | renderer->main | invoke | Get speaker-embedding model status |
+| `embed-progress` | main->renderer | send | Speaker model download progress |
 | `save-conversation` | renderer->main | invoke | Show save dialog + write .txt |
 | `clipboard-write` | renderer->main | invoke | Write text to native clipboard (bypasses web permission handler) |
 | `request-mic-permission` | renderer->main | invoke | macOS microphone access |
@@ -140,6 +144,13 @@ interface ChatMessage {
 ```
 
 ## Critical Technical Decisions
+
+### Speaker diarization (hybrid: channel + voice clustering)
+"Speakers" mode in `AudioCapture.tsx` labels who is talking. It combines two signals:
+1. **Channel separation** — mic and system audio are captured into **separate PCM buffers** (`micChunksRef` / `systemChunksRef`) instead of being merged. Mic = "You"; system = the other side.
+2. **Voice clustering (A/B/C)** — each system-audio chunk is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by cosine similarity (`SPEAKER_SIM_THRESHOLD`, dot product since vectors are normalized); new speakers get the next letter (A, B, C…).
+
+The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker chunks merge). A formatted string (`You: … / A: …`) is what gets passed to Ollama, saved, and used as chat context. If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per transcription chunk, so speakers that overlap within a chunk share a label; the `SPEAKER_SIM_THRESHOLD` constant is the accuracy knob to tune.
 
 ### Whisper runs in main process
 The `@huggingface/transformers` library requires `fs` access for ONNX runtime. The renderer process (sandboxed) cannot access `fs`. All Whisper inference happens in the main process, with audio sent as `ArrayBuffer` over IPC.

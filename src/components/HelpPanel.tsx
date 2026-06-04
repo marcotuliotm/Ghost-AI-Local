@@ -126,7 +126,12 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </div>
               }
               label="Audio Source"
-              description="Mic = your microphone | System = audio from meetings/videos/calls | Both = mic + system mixed together"
+              description="Mic = your microphone | System = audio from meetings/videos/calls | Both = mic + system on separate channels"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Speakers</span>}
+              label="Speakers (diarization)"
+              description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. First use downloads a small speaker model."
             />
             <ButtonRow
               icon={

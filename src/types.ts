@@ -43,6 +43,12 @@ export interface GhostAPI {
   whisperStatus: () => Promise<{ status: string; error?: string }>
   onWhisperProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => () => void
 
+  // Speaker embedding (diarization)
+  embedLoad: () => Promise<{ status: string; error?: string }>
+  embedSpeaker: (audioBuffer: ArrayBuffer) => Promise<{ success: boolean; embedding?: number[]; error?: string }>
+  embedStatus: () => Promise<{ status: string; error?: string }>
+  onEmbedProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => () => void
+
   // Save conversation
   saveConversation: (payload: { content: string; suggestedName: string }) =>
     Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>
