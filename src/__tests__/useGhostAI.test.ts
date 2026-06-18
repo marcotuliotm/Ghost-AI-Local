@@ -244,7 +244,7 @@ describe('useGhostAI', () => {
       })
 
       const assistantMsg = result.current.messages[1]
-      expect(assistantMsg.content).toContain('Erro')
+      expect(assistantMsg.content).toContain('Error')
       expect(assistantMsg.content).toContain('Connection refused')
       expect(assistantMsg.isStreaming).toBe(false)
       expect(result.current.isStreaming).toBe(false)

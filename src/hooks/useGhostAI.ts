@@ -180,7 +180,7 @@ export function useGhostAI() {
           // Only blame connectivity for actual connection failures. A 4xx from
           // Ollama means it IS reachable but rejected the request (bad model,
           // context too large, etc.) — show that reason instead of "is it running?".
-          const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|enotfound|network|timed out|timeout|not loaded/i.test(err)
+          const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i.test(err)
           lastMsg.content = isConnectionIssue
             ? `Error: ${err}\n\nIs Ollama running at ${settings.ollamaBaseUrl}? Start it with \`ollama serve\`.`
             : `Error: ${err}`
