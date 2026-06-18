@@ -805,7 +805,7 @@ function setupIPC() {
   }) => {
     try {
       const { canceled, filePath: savePath } = await dialog.showSaveDialog({
-        title: 'Salvar conversa',
+        title: 'Save conversation',
         defaultPath: path.join(app.getPath('documents'), payload.suggestedName),
         filters: [{ name: 'Text', extensions: ['txt'] }],
       })

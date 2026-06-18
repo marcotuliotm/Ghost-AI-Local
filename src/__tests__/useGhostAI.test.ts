@@ -138,7 +138,7 @@ describe('useGhostAI', () => {
         await result.current.sendMessage('Analyze this', 'data:image/png;base64,abc')
       })
 
-      expect(result.current.messages[0].content).toContain('[Screenshot anexado]')
+      expect(result.current.messages[0].content).toContain('[Screenshot attached]')
       expect(result.current.messages[0].content).toContain('Analyze this')
       expect(result.current.messages[0].screenshot).toBe('data:image/png;base64,abc')
     })
