@@ -138,7 +138,7 @@ describe('useGhostAI', () => {
         await result.current.sendMessage('Analyze this', 'data:image/png;base64,abc')
       })
 
-      expect(result.current.messages[0].content).toContain('[Screenshot anexado]')
+      expect(result.current.messages[0].content).toContain('[Screenshot attached]')
       expect(result.current.messages[0].content).toContain('Analyze this')
       expect(result.current.messages[0].screenshot).toBe('data:image/png;base64,abc')
     })
@@ -244,7 +244,7 @@ describe('useGhostAI', () => {
       })
 
       const assistantMsg = result.current.messages[1]
-      expect(assistantMsg.content).toContain('Erro')
+      expect(assistantMsg.content).toContain('Error')
       expect(assistantMsg.content).toContain('Connection refused')
       expect(assistantMsg.isStreaming).toBe(false)
       expect(result.current.isStreaming).toBe(false)

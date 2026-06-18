@@ -380,7 +380,12 @@ function setupIPC() {
       })
 
       if (!response.ok) {
-        throw new Error(`Ollama error: ${response.status} ${response.statusText}`)
+        // Surface Ollama's actual error body (e.g. model not found, context too
+        // large, missing vision capability) instead of a generic status line.
+        const detail = await response.text().catch(() => '')
+        let msg = detail
+        try { msg = JSON.parse(detail).error || detail } catch {}
+        throw new Error(`Ollama ${response.status}: ${msg || response.statusText}`)
       }
 
       const data = await response.json()
@@ -408,7 +413,12 @@ function setupIPC() {
       })
 
       if (!response.ok) {
-        throw new Error(`Ollama error: ${response.status} ${response.statusText}`)
+        // Surface Ollama's actual error body (e.g. model not found, context too
+        // large, missing vision capability) instead of a generic status line.
+        const detail = await response.text().catch(() => '')
+        let msg = detail
+        try { msg = JSON.parse(detail).error || detail } catch {}
+        throw new Error(`Ollama ${response.status}: ${msg || response.statusText}`)
       }
 
       const reader = response.body?.getReader()
@@ -795,7 +805,7 @@ function setupIPC() {
   }) => {
     try {
       const { canceled, filePath: savePath } = await dialog.showSaveDialog({
-        title: 'Salvar conversa',
+        title: 'Save conversation',
         defaultPath: path.join(app.getPath('documents'), payload.suggestedName),
         filters: [{ name: 'Text', extensions: ['txt'] }],
       })

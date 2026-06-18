@@ -121,7 +121,7 @@ export function useGhostAI() {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: screenshot ? `[Screenshot anexado]\n\n${content}` : content,
+      content: screenshot ? `[Screenshot attached]\n\n${content}` : content,
       timestamp: Date.now(),
       screenshot,
     }
@@ -176,7 +176,14 @@ export function useGhostAI() {
         const updated = [...prev]
         const lastMsg = updated[updated.length - 1]
         if (lastMsg && lastMsg.role === 'assistant') {
-          lastMsg.content = `Erro: ${result.error}\n\nVerifique se o Ollama esta rodando em ${settings.ollamaBaseUrl}`
+          const err = result.error || 'Unknown error'
+          // Only blame connectivity for actual connection failures. A 4xx from
+          // Ollama means it IS reachable but rejected the request (bad model,
+          // context too large, etc.) — show that reason instead of "is it running?".
+          const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i.test(err)
+          lastMsg.content = isConnectionIssue
+            ? `Error: ${err}\n\nIs Ollama running at ${settings.ollamaBaseUrl}? Start it with \`ollama serve\`.`
+            : `Error: ${err}`
           lastMsg.isStreaming = false
         }
         return updated
@@ -187,13 +194,13 @@ export function useGhostAI() {
 
   // Quick actions
   const askSuggestion = useCallback((context: string) => {
-    sendMessage(`Com base no seguinte contexto, me de uma sugestao de resposta curta e natural:\n\n"${context}"`)
+    sendMessage(`Based on the following context, suggest a short, natural response:\n\n"${context}"`)
   }, [sendMessage])
 
   const analyzeScreenshot = useCallback(async () => {
     const screenshot = await window.ghostAPI.captureScreenshot()
     if (screenshot) {
-      sendMessage('Analise este screenshot e me diga o que esta acontecendo. De sugestoes se for uma conversa, codigo, ou apresentacao.', screenshot)
+      sendMessage('Analyze this screenshot and tell me what is happening. Give suggestions if it is a conversation, code, or presentation.', screenshot)
     }
   }, [sendMessage])
 
