@@ -360,6 +360,17 @@ function registerShortcuts() {
   })
 }
 
+// All Ollama traffic goes through Chromium's net.fetch instead of Node's
+// undici fetch. Undici pools keep-alive connections and, when Ollama closes an
+// idle socket, a subsequent POST is written to that dead connection; the server
+// reads a truncated body and replies "400: unexpected EOF". Undici will not
+// transparently retry a POST (only idempotent GET/HEAD), so the error reaches
+// the user — typically after several summarize/suggest-reply calls with idle
+// gaps between them. Chromium's net stack retries requests that fail on a
+// reused connection before any response bytes arrive, which eliminates this.
+const ollamaFetch: typeof globalThis.fetch = (input: any, init?: any) =>
+  (net.fetch as any)(input, init)
+
 // IPC Handlers
 function setupIPC() {
   // Ollama chat
@@ -369,7 +380,7 @@ function setupIPC() {
     baseUrl: string
   }) => {
     try {
-      const response = await fetch(`${payload.baseUrl}/api/chat`, {
+      const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -402,7 +413,7 @@ function setupIPC() {
     baseUrl: string
   }) => {
     try {
-      const response = await fetch(`${payload.baseUrl}/api/chat`, {
+      const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -427,29 +438,41 @@ function setupIPC() {
       if (!reader) throw new Error('No reader available')
 
       let fullResponse = ''
+      // Ollama streams newline-delimited JSON. A single JSON object can be split
+      // across read() chunks, so buffer partial lines instead of parsing each
+      // raw chunk — otherwise the split line (and its `done` flag) is dropped,
+      // leaving the UI stuck in the streaming state.
+      let buffer = ''
+
+      const handleLine = (line: string) => {
+        if (!line) return
+        try {
+          const json = JSON.parse(line)
+          if (json.message?.content) {
+            fullResponse += json.message.content
+            mainWindow?.webContents.send('ollama-stream-chunk', json.message.content)
+          }
+          if (json.done) {
+            mainWindow?.webContents.send('ollama-stream-done', fullResponse)
+          }
+        } catch {
+          // Skip malformed lines
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n').filter(Boolean)
-
-        for (const line of lines) {
-          try {
-            const json = JSON.parse(line)
-            if (json.message?.content) {
-              fullResponse += json.message.content
-              mainWindow?.webContents.send('ollama-stream-chunk', json.message.content)
-            }
-            if (json.done) {
-              mainWindow?.webContents.send('ollama-stream-done', fullResponse)
-            }
-          } catch {
-            // Skip malformed lines
-          }
-        }
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        // Keep the last, possibly-incomplete line in the buffer.
+        buffer = lines.pop() ?? ''
+        for (const line of lines) handleLine(line)
       }
+
+      // Flush any trailing complete line left in the buffer.
+      handleLine(buffer.trim())
 
       return { success: true, message: { role: 'assistant', content: fullResponse } }
     } catch (error: any) {
@@ -460,7 +483,7 @@ function setupIPC() {
   // List Ollama models
   ipcMain.handle('ollama-list-models', async (_event, baseUrl: string) => {
     try {
-      const response = await fetch(`${baseUrl}/api/tags`)
+      const response = await ollamaFetch(`${baseUrl}/api/tags`)
       if (!response.ok) throw new Error('Failed to fetch models')
       const data = await response.json()
       return { success: true, models: data.models || [] }
@@ -472,7 +495,7 @@ function setupIPC() {
   // Check Ollama connection
   ipcMain.handle('ollama-check', async (_event, baseUrl: string) => {
     try {
-      const response = await fetch(`${baseUrl}/api/tags`, {
+      const response = await ollamaFetch(`${baseUrl}/api/tags`, {
         signal: AbortSignal.timeout(3000),
       })
       return { connected: response.ok }
