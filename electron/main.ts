@@ -438,6 +438,7 @@ function setupIPC() {
       if (!reader) throw new Error('No reader available')
 
       let fullResponse = ''
+      let doneSent = false
       // Ollama streams newline-delimited JSON. A single JSON object can be split
       // across read() chunks, so buffer partial lines instead of parsing each
       // raw chunk — otherwise the split line (and its `done` flag) is dropped,
@@ -453,6 +454,7 @@ function setupIPC() {
             mainWindow?.webContents.send('ollama-stream-chunk', json.message.content)
           }
           if (json.done) {
+            doneSent = true
             mainWindow?.webContents.send('ollama-stream-done', fullResponse)
           }
         } catch {
@@ -471,8 +473,18 @@ function setupIPC() {
         for (const line of lines) handleLine(line)
       }
 
-      // Flush any trailing complete line left in the buffer.
+      // Flush the decoder's internal state so a multi-byte character split
+      // across the final chunk isn't lost, then parse any trailing line.
+      buffer += decoder.decode()
       handleLine(buffer.trim())
+
+      // If the stream ended without ever delivering a `done` line (connection
+      // severed mid-stream, or a truncated/malformed final fragment), the
+      // renderer would stay stuck in the streaming state. Emit the done event
+      // as a fallback so isStreaming is always reset.
+      if (!doneSent) {
+        mainWindow?.webContents.send('ollama-stream-done', fullResponse)
+      }
 
       return { success: true, message: { role: 'assistant', content: fullResponse } }
     } catch (error: any) {
