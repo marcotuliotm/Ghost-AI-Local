@@ -155,8 +155,13 @@ export function useGhostAI() {
           content: msg.content,
         }
 
-        // Include screenshot as base64 image for Ollama vision API
-        if (msg.screenshot) {
+        // Attach the screenshot only to the message currently being sent.
+        // Re-sending every historical screenshot on each turn quickly overflows
+        // the model's context (and the runner's memory), which makes Ollama's
+        // subprocess die mid-request and surface as "400: unexpected EOF" after
+        // a few chats. The prior "[Screenshot attached]" text plus the assistant's
+        // earlier analysis already preserve that context in the history.
+        if (msg === userMessage && msg.screenshot) {
           ollamaMsg.images = [msg.screenshot.replace(/^data:image\/\w+;base64,/, '')]
         }
 

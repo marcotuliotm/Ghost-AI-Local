@@ -180,6 +180,40 @@ describe('useGhostAI', () => {
       expect(userMessage.images[0]).not.toContain('data:image')
     })
 
+    it('should attach the image only to the current message, not to older screenshots in history', async () => {
+      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      const { result } = renderHook(() => useGhostAI())
+
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      // Grab the stream-done callback registered on mount so we can simulate a
+      // turn finishing (which clears isStreaming and unblocks the next send).
+      const onDoneMock = window.ghostAPI.onStreamDone as ReturnType<typeof vi.fn>
+      const emitDone = onDoneMock.mock.calls.at(-1)?.[0] as (r: string) => void
+
+      // First turn: send a screenshot, then finish the stream.
+      await act(async () => {
+        await result.current.sendMessage('First shot', 'data:image/png;base64,firstImg')
+      })
+      await act(async () => {
+        emitDone('first answer')
+      })
+
+      // Second turn: send another screenshot. The first image must NOT be
+      // re-sent, otherwise the request grows every turn and Ollama eventually
+      // fails with "400: unexpected EOF".
+      await act(async () => {
+        await result.current.sendMessage('Second shot', 'data:image/png;base64,secondImg')
+      })
+
+      const mock = window.ghostAPI.ollamaChatStream as ReturnType<typeof vi.fn>
+      const payload = mock.mock.calls.at(-1)?.[0]
+      const messagesWithImages = payload.messages.filter((m: any) => m.images)
+
+      expect(messagesWithImages).toHaveLength(1)
+      expect(messagesWithImages[0].images).toEqual(['secondImg'])
+    })
+
     it('should not include images field when no screenshot is attached', async () => {
       window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
