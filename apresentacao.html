@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ghost AI — Assistente de IA 100% Local</title>
+<style>
+  :root {
+    --bg: #0a0a12;
+    --bg-soft: #12121e;
+    --card: #181826;
+    --card-border: #2a2a40;
+    --accent: #7c6cf0;
+    --accent-soft: #a89cf8;
+    --accent-glow: rgba(124, 108, 240, 0.35);
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --cyan: #22d3ee;
+    --text: #e8e8f0;
+    --text-dim: #9a9ab0;
+    --mono: "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--accent); color: #fff; }
+
+  /* ---------- NAV ---------- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 32px;
+    background: rgba(10, 10, 18, 0.8);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--card-border);
+  }
+  nav .brand { font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+  nav .brand .ghost-dot {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    display: grid; place-items: center; font-size: 14px;
+  }
+  nav ul { display: flex; gap: 22px; list-style: none; }
+  nav a { color: var(--text-dim); text-decoration: none; font-size: 13.5px; transition: color .2s; }
+  nav a:hover { color: var(--text); }
+  nav a.lang { border: 1px solid var(--card-border); border-radius: 100px; padding: 4px 12px; }
+  @media (max-width: 760px) { nav ul li:not(:last-child) { display: none; } }
+
+  /* ---------- LAYOUT ---------- */
+  section { max-width: 1080px; margin: 0 auto; padding: 90px 28px; }
+  .kicker {
+    display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--accent-soft);
+    border: 1px solid var(--card-border); border-radius: 100px;
+    padding: 5px 16px; margin-bottom: 18px; background: var(--bg-soft);
+  }
+  h2 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 14px; }
+  .lead { color: var(--text-dim); font-size: 17px; max-width: 720px; margin-bottom: 40px; }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    min-height: 92vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding-top: 120px; position: relative;
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background:
+      radial-gradient(600px 400px at 50% 20%, var(--accent-glow), transparent 70%),
+      radial-gradient(500px 350px at 80% 70%, rgba(34, 211, 238, 0.12), transparent 70%);
+  }
+  .hero .ghost-icon { font-size: 64px; margin-bottom: 20px; filter: drop-shadow(0 0 24px var(--accent-glow)); }
+  .hero h1 {
+    font-size: clamp(40px, 7vw, 72px); font-weight: 900; letter-spacing: -2px; line-height: 1.05;
+    background: linear-gradient(120deg, #fff 30%, var(--accent-soft) 70%, var(--cyan));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p.sub { margin-top: 22px; font-size: clamp(16px, 2.2vw, 20px); color: var(--text-dim); max-width: 640px; }
+  .hero .badges { margin-top: 34px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .pill {
+    padding: 8px 18px; border-radius: 100px; font-size: 13.5px; font-weight: 600;
+    background: var(--card); border: 1px solid var(--card-border);
+  }
+  .pill.green { color: var(--green); border-color: rgba(74, 222, 128, .3); }
+  .pill.violet { color: var(--accent-soft); border-color: rgba(124, 108, 240, .4); }
+  .pill.cyan { color: var(--cyan); border-color: rgba(34, 211, 238, .3); }
+  .hero .stats { margin-top: 56px; display: flex; gap: 48px; flex-wrap: wrap; justify-content: center; }
+  .stat .num { font-size: 34px; font-weight: 800; color: var(--accent-soft); }
+  .stat .lbl { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ---------- CARDS ---------- */
+  .grid { display: grid; gap: 20px; }
+  .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  @media (max-width: 395px) {
+    .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    padding: 26px; transition: transform .2s, border-color .2s;
+  }
+  .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .card .icon {
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    font-size: 22px; margin-bottom: 16px;
+    background: linear-gradient(135deg, rgba(124,108,240,.25), rgba(34,211,238,.15));
+    border: 1px solid var(--card-border);
+  }
+  .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--text-dim); }
+
+  /* ---------- MOCKUP ---------- */
+  .mockup-wrap { display: flex; justify-content: center; margin-top: 10px; }
+  .mockup-wrap svg { max-width: 100%; height: auto; filter: drop-shadow(0 20px 60px rgba(0,0,0,.5)); }
+
+  /* ---------- DIAGRAMS ---------- */
+  .diagram-box {
+    background: var(--bg-soft); border: 1px solid var(--card-border); border-radius: 20px;
+    padding: 30px; overflow-x: auto;
+  }
+  .diagram-box svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .legend { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; margin-top: 22px; font-size: 13px; color: var(--text-dim); }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+  .legend i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+
+  /* ---------- SECURITY ---------- */
+  .sec-item {
+    display: flex; gap: 18px; padding: 22px 0; border-bottom: 1px solid var(--card-border);
+  }
+  .sec-item:last-child { border-bottom: none; }
+  .sec-item .check {
+    flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
+    background: rgba(74, 222, 128, .12); border: 1px solid rgba(74, 222, 128, .35);
+    display: grid; place-items: center; color: var(--green); font-size: 17px; font-weight: 700;
+  }
+  .sec-item h4 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .sec-item p { font-size: 14px; color: var(--text-dim); }
+  .sec-item code {
+    font-family: var(--mono); font-size: 12.5px; background: var(--bg);
+    padding: 2px 7px; border-radius: 6px; border: 1px solid var(--card-border); color: var(--cyan);
+  }
+
+  /* ---------- COMPARISON TABLE ---------- */
+  .cmp { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14.5px; }
+  .cmp th, .cmp td { padding: 14px 18px; text-align: left; border-bottom: 1px solid var(--card-border); }
+  .cmp th { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+  .cmp th.ghost-col { color: var(--accent-soft); }
+  .cmp td.yes { color: var(--green); font-weight: 600; }
+  .cmp td.no { color: var(--red); }
+  .cmp tr:hover td { background: rgba(124, 108, 240, .05); }
+  .table-wrap {
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 16px;
+    overflow: hidden; overflow-x: auto;
+  }
+
+  /* ---------- FLOW STEPS ---------- */
+  .steps { counter-reset: step; display: grid; gap: 16px; }
+  .step {
+    display: flex; gap: 20px; align-items: flex-start;
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 20px 24px;
+  }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--cyan));
+    color: #fff; font-weight: 800; display: grid; place-items: center; font-size: 15px;
+  }
+  .step h4 { font-size: 15.5px; font-weight: 700; }
+  .step p { font-size: 13.5px; color: var(--text-dim); }
+
+  /* ---------- STACK ---------- */
+  .stack-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .tech {
+    padding: 10px 20px; border-radius: 12px; font-size: 14px; font-weight: 600;
+    background: var(--card); border: 1px solid var(--card-border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tech small { color: var(--text-dim); font-weight: 400; font-size: 12px; }
+
+  /* ---------- FOOTER ---------- */
+  footer {
+    text-align: center; padding: 60px 28px; color: var(--text-dim); font-size: 13.5px;
+    border-top: 1px solid var(--card-border); margin-top: 40px;
+  }
+  footer .ghost { font-size: 30px; margin-bottom: 12px; }
+
+  .reveal { opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.visible { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="brand"><span class="ghost-dot">👻</span> Ghost AI</div>
+  <ul>
+    <li><a href="#visao">Visão geral</a></li>
+    <li><a href="#recursos">Recursos</a></li>
+    <li><a href="#fluxo">Fluxo</a></li>
+    <li><a href="#seguranca">Segurança</a></li>
+    <li><a href="#vantagens">Vantagens</a></li>
+    <li><a href="#stack">Stack</a></li>
+    <li><a class="lang" href="presentation.html">🇺🇸 EN</a></li>
+  </ul>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="ghost-icon">👻</div>
+  <h1>Ghost AI</h1>
+  <p class="sub">Assistente de IA anônimo que roda <strong>inteiramente na sua máquina</strong>.
+  Transcrição de áudio em tempo real, sugestões inteligentes e análise de tela — <strong>zero nuvem, zero telemetria</strong>.</p>
+  <div class="badges">
+    <span class="pill green">● 100% Local</span>
+    <span class="pill violet">🔒 Privacidade por design</span>
+    <span class="pill cyan">⚡ Tempo real</span>
+    <span class="pill">🍎 macOS nativo</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="num">0</div><div class="lbl">bytes enviados à nuvem</div></div>
+    <div class="stat"><div class="num">0</div><div class="lbl">contas ou cadastros</div></div>
+    <div class="stat"><div class="num">100%</div><div class="lbl">inferência on-device</div></div>
+    <div class="stat"><div class="num">MIT</div><div class="lbl">código aberto</div></div>
+  </div>
+</header>
+
+<!-- ================= VISÃO GERAL ================= -->
+<section id="visao" class="reveal">
+  <span class="kicker">O que é</span>
+  <h2>Um overlay flutuante com IA, sempre à mão</h2>
+  <p class="lead">O Ghost AI é uma janela transparente que fica sobre qualquer aplicativo. Durante reuniões, chamadas ou entrevistas, ele captura o áudio, transcreve localmente com Whisper e gera sugestões contextuais com Ollama — tudo sem que um único byte saia do seu computador.</p>
+
+  <div class="mockup-wrap">
+    <svg viewBox="0 0 760 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mockup do overlay Ghost AI">
+      <defs>
+        <linearGradient id="screenBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#1c2333"/><stop offset="1" stop-color="#10141f"/>
+        </linearGradient>
+        <linearGradient id="accGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#7c6cf0"/><stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient>
+      </defs>
+      <!-- Tela de fundo (reunião) -->
+      <rect x="10" y="10" width="740" height="440" rx="18" fill="url(#screenBg)" stroke="#2a2a40"/>
+      <rect x="10" y="10" width="740" height="34" rx="18" fill="#181f2e"/>
+      <circle cx="34" cy="27" r="5" fill="#f87171"/><circle cx="52" cy="27" r="5" fill="#fbbf24"/><circle cx="70" cy="27" r="5" fill="#4ade80"/>
+      <text x="380" y="31" text-anchor="middle" fill="#5a6478" font-size="12" font-family="sans-serif">Videochamada — Reunião de equipe</text>
+      <!-- participantes -->
+      <rect x="40" y="70" width="200" height="130" rx="12" fill="#232c40"/>
+      <circle cx="140" cy="120" r="26" fill="#3b4763"/><text x="140" y="128" text-anchor="middle" font-size="22">🧑</text>
+      <text x="140" y="185" text-anchor="middle" fill="#8892aa" font-size="11" font-family="sans-serif">Ana</text>
+      <rect x="40" y="220" width="200" height="130" rx="12" fill="#232c40"/>
+      <circle cx="140" cy="270" r="26" fill="#3b4763"/><text x="140" y="278" text-anchor="middle" font-size="22">🧔</text>
+      <text x="140" y="335" text-anchor="middle" fill="#8892aa" font-size="11" font-family="sans-serif">Carlos</text>
+      <!-- Overlay Ghost AI -->
+      <g>
+        <rect x="290" y="62" width="430" height="360" rx="16" fill="#12121e" fill-opacity="0.96" stroke="url(#accGrad)" stroke-width="1.5"/>
+        <!-- title bar -->
+        <text x="312" y="92" font-size="15">👻</text>
+        <text x="336" y="91" fill="#e8e8f0" font-size="13" font-weight="700" font-family="sans-serif">Ghost AI</text>
+        <circle cx="416" cy="86" r="4.5" fill="#4ade80"/>
+        <text x="426" y="90" fill="#4ade80" font-size="10" font-family="sans-serif">Ollama conectado</text>
+        <text x="700" y="91" text-anchor="end" fill="#5a6478" font-size="12" font-family="sans-serif">📷 ⬇ ⚙ ✕</text>
+        <line x1="300" y1="104" x2="710" y2="104" stroke="#2a2a40"/>
+        <!-- transcrição -->
+        <rect x="306" y="116" width="398" height="96" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+        <text x="320" y="136" fill="#7c6cf0" font-size="10.5" font-weight="700" font-family="sans-serif">🎙 TRANSCRIÇÃO AO VIVO</text>
+        <text x="320" y="156" fill="#9a9ab0" font-size="11" font-family="sans-serif"><tspan fill="#22d3ee" font-weight="700">Falante A:</tspan> Precisamos definir o prazo do</text>
+        <text x="320" y="172" fill="#9a9ab0" font-size="11" font-family="sans-serif">projeto até sexta-feira...</text>
+        <text x="320" y="192" fill="#9a9ab0" font-size="11" font-family="sans-serif"><tspan fill="#4ade80" font-weight="700">Você:</tspan> Acho viável, mas depende do escopo…</text>
+        <!-- sugestão -->
+        <rect x="306" y="224" width="398" height="82" rx="10" fill="rgba(124,108,240,0.10)" stroke="#7c6cf0" stroke-opacity="0.5"/>
+        <text x="320" y="245" fill="#a89cf8" font-size="10.5" font-weight="700" font-family="sans-serif">💡 SUGESTÃO DA IA</text>
+        <text x="320" y="265" fill="#d5d5e5" font-size="11" font-family="sans-serif">"Posso confirmar o prazo de sexta se fecharmos o</text>
+        <text x="320" y="281" fill="#d5d5e5" font-size="11" font-family="sans-serif">escopo hoje. Sugiro priorizarmos os itens críticos."</text>
+        <!-- botões -->
+        <g font-family="sans-serif" font-size="10">
+          <rect x="306" y="320" width="92" height="26" rx="13" fill="#181826" stroke="#2a2a40"/>
+          <text x="352" y="337" text-anchor="middle" fill="#9a9ab0">Sugerir resposta</text>
+          <rect x="406" y="320" width="72" height="26" rx="13" fill="#181826" stroke="#2a2a40"/>
+          <text x="442" y="337" text-anchor="middle" fill="#9a9ab0">Resumir</text>
+          <rect x="486" y="320" width="88" height="26" rx="13" fill="#181826" stroke="#2a2a40"/>
+          <text x="530" y="337" text-anchor="middle" fill="#9a9ab0">Traduzir PT</text>
+          <rect x="582" y="320" width="56" height="26" rx="13" fill="rgba(74,222,128,0.12)" stroke="#4ade80" stroke-opacity="0.5"/>
+          <text x="610" y="337" text-anchor="middle" fill="#4ade80">Auto</text>
+        </g>
+        <!-- input -->
+        <rect x="306" y="362" width="352" height="34" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+        <text x="320" y="383" fill="#5a6478" font-size="11" font-family="sans-serif">Pergunte qualquer coisa…</text>
+        <rect x="666" y="362" width="38" height="34" rx="10" fill="url(#accGrad)"/>
+        <text x="685" y="384" text-anchor="middle" fill="#fff" font-size="13">➤</text>
+      </g>
+    </svg>
+  </div>
+</section>
+
+<!-- ================= RECURSOS ================= -->
+<section id="recursos" class="reveal">
+  <span class="kicker">Recursos</span>
+  <h2>Tudo o que ele faz por você</h2>
+  <p class="lead">Um conjunto de ferramentas pensado para conversas ao vivo: reuniões, entrevistas, aulas e chamadas.</p>
+  <div class="grid cols-3">
+    <div class="card"><div class="icon">🎙️</div><h3>Transcrição em tempo real</h3><p>Whisper local transcreve o microfone, o áudio do sistema (reuniões e chamadas) ou ambos simultaneamente, em canais separados.</p></div>
+    <div class="card"><div class="icon">🗣️</div><h3>Separação de falantes</h3><p>Modo "Speakers" identifica quem está falando: seu microfone é "Você" e o outro lado da chamada é separado por voz em Falante A / B / C — 100% on-device.</p></div>
+    <div class="card"><div class="icon">💡</div><h3>Sugestões de resposta</h3><p>O Ollama gera sugestões contextuais de resposta com base na transcrição ao vivo, com prompts personalizáveis e modo automático.</p></div>
+    <div class="card"><div class="icon">📝</div><h3>Resumos e tradução</h3><p>Resuma a conversa em tópicos com um clique ou traduza a transcrição para português brasileiro instantaneamente.</p></div>
+    <div class="card"><div class="icon">📸</div><h3>Análise de tela</h3><p>Capture a tela inteira ou uma região recortada e envie para análise da IA — útil para código, apresentações e documentos.</p></div>
+    <div class="card"><div class="icon">🪟</div><h3>Overlay flutuante</h3><p>Janela transparente sempre no topo, arrastável, com opacidade ajustável e atalhos globais de teclado (Cmd+Shift+G para mostrar/ocultar).</p></div>
+    <div class="card"><div class="icon">🔄</div><h3>Troca rápida de modelo</h3><p>Alterne entre modelos do Ollama (gemma, llama, mistral…) direto na barra de título, sem abrir as configurações.</p></div>
+    <div class="card"><div class="icon">💾</div><h3>Exportação de conversas</h3><p>Salve chats e transcrições em arquivos .txt com nomes gerados pela própria IA. Nada é persistido sem sua ação.</p></div>
+    <div class="card"><div class="icon">⌨️</div><h3>Atalhos globais</h3><p>Controle tudo pelo teclado mesmo com o app em segundo plano: capturar tela, focar o input, mostrar/ocultar overlay.</p></div>
+  </div>
+</section>
+
+<!-- ================= FLUXO / ARQUITETURA ================= -->
+<section id="fluxo" class="reveal">
+  <span class="kicker">Arquitetura</span>
+  <h2>Fluxo de dados: do áudio à sugestão</h2>
+  <p class="lead">Todo o pipeline roda dentro da sua máquina. A única comunicação externa acontece uma única vez: o download inicial dos modelos.</p>
+
+  <div class="diagram-box">
+    <svg viewBox="0 0 900 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama do pipeline de áudio do Ghost AI">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#7c6cf0"/>
+        </marker>
+        <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#4ade80"/>
+        </marker>
+      </defs>
+      <style>
+        .nbox { fill: #181826; stroke: #2a2a40; rx: 12; }
+        .ntitle { fill: #e8e8f0; font-size: 13px; font-weight: 700; font-family: sans-serif; }
+        .nsub { fill: #9a9ab0; font-size: 10.5px; font-family: sans-serif; }
+        .flow { stroke: #7c6cf0; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+        .flowG { stroke: #4ade80; stroke-width: 1.8; fill: none; marker-end: url(#arrowG); }
+      </style>
+
+      <!-- Perímetro local -->
+      <rect x="12" y="12" width="876" height="536" rx="20" fill="none" stroke="#4ade80" stroke-width="1.5" stroke-dasharray="8 6" opacity="0.6"/>
+      <text x="34" y="40" fill="#4ade80" font-size="12" font-weight="700" font-family="sans-serif">🔒 SUA MÁQUINA — nenhum dado sai deste perímetro</text>
+
+      <!-- Fontes de áudio -->
+      <rect x="40" y="70" width="150" height="62" class="nbox" rx="12"/>
+      <text x="115" y="97" text-anchor="middle" class="ntitle">🎤 Microfone</text>
+      <text x="115" y="115" text-anchor="middle" class="nsub">canal "Você"</text>
+
+      <rect x="40" y="150" width="150" height="62" class="nbox" rx="12"/>
+      <text x="115" y="177" text-anchor="middle" class="ntitle">🔊 Áudio do sistema</text>
+      <text x="115" y="195" text-anchor="middle" class="nsub">ScreenCaptureKit</text>
+
+      <!-- Captura PCM -->
+      <rect x="255" y="105" width="180" height="72" class="nbox" rx="12"/>
+      <text x="345" y="133" text-anchor="middle" class="ntitle">Captura PCM bruta</text>
+      <text x="345" y="151" text-anchor="middle" class="nsub">por canal, no renderer</text>
+      <text x="345" y="166" text-anchor="middle" class="nsub">(ScriptProcessorNode)</text>
+
+      <!-- Resample -->
+      <rect x="500" y="105" width="180" height="72" class="nbox" rx="12"/>
+      <text x="590" y="133" text-anchor="middle" class="ntitle">Resample 16 kHz</text>
+      <text x="590" y="151" text-anchor="middle" class="nsub">+ detecção de silêncio</text>
+      <text x="590" y="166" text-anchor="middle" class="nsub">+ filtro de alucinação</text>
+
+      <!-- Whisper -->
+      <rect x="330" y="240" width="220" height="76" class="nbox" rx="12" stroke="#7c6cf0"/>
+      <text x="440" y="268" text-anchor="middle" class="ntitle">🧠 Whisper (local)</text>
+      <text x="440" y="286" text-anchor="middle" class="nsub">onnx-community/whisper-tiny</text>
+      <text x="440" y="301" text-anchor="middle" class="nsub">processo principal do Electron</text>
+
+      <!-- Diarização -->
+      <rect x="620" y="240" width="230" height="76" class="nbox" rx="12" stroke="#22d3ee"/>
+      <text x="735" y="264" text-anchor="middle" class="ntitle">🗣️ Embedding de voz</text>
+      <text x="735" y="282" text-anchor="middle" class="nsub">wavlm-base-plus-sv (local)</text>
+      <text x="735" y="297" text-anchor="middle" class="nsub">clustering por similaridade → A/B/C</text>
+
+      <!-- Transcript -->
+      <rect x="330" y="368" width="220" height="64" class="nbox" rx="12"/>
+      <text x="440" y="394" text-anchor="middle" class="ntitle">📄 Transcrição rotulada</text>
+      <text x="440" y="412" text-anchor="middle" class="nsub">Você: … / Falante A: …</text>
+
+      <!-- Ollama -->
+      <rect x="330" y="472" width="220" height="64" class="nbox" rx="12" stroke="#4ade80"/>
+      <text x="440" y="498" text-anchor="middle" class="ntitle">🦙 Ollama (LLM local)</text>
+      <text x="440" y="516" text-anchor="middle" class="nsub">http://localhost:11434</text>
+
+      <!-- Saídas -->
+      <rect x="640" y="452" width="210" height="40" class="nbox" rx="10"/>
+      <text x="745" y="477" text-anchor="middle" class="nsub" font-size="12">💡 Sugestões de resposta</text>
+      <rect x="640" y="500" width="210" height="40" class="nbox" rx="10"/>
+      <text x="745" y="525" text-anchor="middle" class="nsub" font-size="12">📝 Resumos e traduções</text>
+
+      <!-- Setas -->
+      <path class="flow" d="M190 101 L245 125"/>
+      <path class="flow" d="M190 181 L245 157"/>
+      <path class="flow" d="M435 141 L490 141"/>
+      <path class="flow" d="M560 177 L470 235"/>
+      <path class="flow" d="M640 177 L715 235"/>
+      <path class="flow" d="M440 316 L440 363"/>
+      <path class="flow" d="M700 316 L520 366"/>
+      <path class="flowG" d="M440 432 L440 467"/>
+      <path class="flowG" d="M550 496 L635 476"/>
+      <path class="flowG" d="M550 512 L635 518"/>
+    </svg>
+
+    <div class="legend">
+      <span><i style="background:#7c6cf0"></i> Processamento local (Whisper / embeddings)</span>
+      <span><i style="background:#4ade80"></i> Inferência LLM local (Ollama)</span>
+      <span><i style="background:transparent;border:1.5px dashed #4ade80"></i> Perímetro de privacidade</span>
+    </div>
+  </div>
+
+  <div style="height:48px"></div>
+
+  <h2 style="font-size:26px">Arquitetura de processos do Electron</h2>
+  <p class="lead">A separação entre processos segue as práticas recomendadas de segurança do Electron: a interface nunca tem acesso direto ao sistema.</p>
+
+  <div class="diagram-box">
+    <svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagrama da arquitetura de processos">
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#a89cf8"/>
+        </marker>
+      </defs>
+      <style>
+        .pbox { fill: #181826; stroke: #2a2a40; }
+        .pt { fill: #e8e8f0; font-size: 14px; font-weight: 700; font-family: sans-serif; }
+        .ps { fill: #9a9ab0; font-size: 11px; font-family: sans-serif; }
+        .ipc { stroke: #a89cf8; stroke-width: 1.8; fill: none; marker-end: url(#arr2); }
+      </style>
+
+      <!-- Renderer -->
+      <rect x="30" y="50" width="300" height="290" rx="16" class="pbox"/>
+      <text x="180" y="82" text-anchor="middle" class="pt">🖥️ Renderer (React)</text>
+      <text x="180" y="102" text-anchor="middle" class="ps">Interface — sem acesso ao Node.js</text>
+      <rect x="55" y="122" width="250" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="180" y="147" text-anchor="middle" class="ps">Overlay.tsx — chat e barra de título</text>
+      <rect x="55" y="172" width="250" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="180" y="197" text-anchor="middle" class="ps">AudioCapture.tsx — captura de áudio</text>
+      <rect x="55" y="222" width="250" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="180" y="247" text-anchor="middle" class="ps">useGhostAI.ts — integração Ollama</text>
+      <rect x="55" y="272" width="250" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="180" y="297" text-anchor="middle" class="ps">useWhisper.ts — ponte IPC</text>
+
+      <!-- Preload -->
+      <rect x="385" y="120" width="150" height="150" rx="16" fill="rgba(124,108,240,0.10)" stroke="#7c6cf0"/>
+      <text x="460" y="152" text-anchor="middle" class="pt" font-size="13px">🔐 Preload</text>
+      <text x="460" y="176" text-anchor="middle" class="ps">contextBridge</text>
+      <text x="460" y="194" text-anchor="middle" class="ps">expõe apenas a API</text>
+      <text x="460" y="210" text-anchor="middle" class="ps">"ghostAPI" — nada</text>
+      <text x="460" y="226" text-anchor="middle" class="ps">além do necessário</text>
+      <text x="460" y="252" text-anchor="middle" class="ps" fill="#4ade80">contextIsolation: ✓</text>
+
+      <!-- Main -->
+      <rect x="590" y="50" width="280" height="290" rx="16" class="pbox"/>
+      <text x="730" y="82" text-anchor="middle" class="pt">⚙️ Main Process (Node)</text>
+      <text x="730" y="102" text-anchor="middle" class="ps">Acesso ao sistema, isolado da UI</text>
+      <rect x="615" y="122" width="230" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="730" y="147" text-anchor="middle" class="ps">Whisper + modelos ONNX</text>
+      <rect x="615" y="172" width="230" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="730" y="197" text-anchor="middle" class="ps">Janela, bandeja, atalhos globais</text>
+      <rect x="615" y="222" width="230" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="730" y="247" text-anchor="middle" class="ps">Captura de tela e clipboard</text>
+      <rect x="615" y="272" width="230" height="40" rx="10" fill="#0a0a12" stroke="#2a2a40"/>
+      <text x="730" y="297" text-anchor="middle" class="ps">Handler de permissões restrito</text>
+
+      <!-- IPC arrows -->
+      <path class="ipc" d="M330 175 L380 175"/>
+      <path class="ipc" d="M540 175 L585 175"/>
+      <path class="ipc" d="M585 215 L540 215"/>
+      <path class="ipc" d="M380 215 L330 215"/>
+      <text x="357" y="163" text-anchor="middle" class="ps" font-size="10">IPC</text>
+      <text x="562" y="163" text-anchor="middle" class="ps" font-size="10">IPC</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ================= SEGURANÇA ================= -->
+<section id="seguranca" class="reveal">
+  <span class="kicker">Segurança &amp; Privacidade</span>
+  <h2>Privacidade não é um recurso. É a arquitetura.</h2>
+  <p class="lead">O Ghost AI foi projetado a partir do princípio de que dados de conversas são sensíveis demais para sair da sua máquina — e a implementação reflete isso em cada camada.</p>
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h3 style="margin-bottom:18px">🛡️ Garantias de privacidade</h3>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Zero chamadas externas em operação</h4><p>Toda a inferência de IA acontece via Ollama em <code>localhost:11434</code>. A única exceção é o download inicial dos modelos (HuggingFace CDN), feito uma única vez e depois cacheado.</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Sem telemetria, analytics ou tracking</h4><p>Nenhum cookie, nenhum evento de uso, nenhum identificador. Não há código de coleta no projeto — verificável, pois é open source (MIT).</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Sem contas ou cloud sync</h4><p>Não existe cadastro, login ou sincronização. Não há servidor para vazar seus dados, porque não há servidor.</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Conversas efêmeras por padrão</h4><p>O histórico vive apenas em memória e é perdido ao fechar o app — a menos que você exporte explicitamente para um arquivo .txt.</p></div></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:18px">🔐 Hardening técnico (Electron)</h3>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Isolamento de contexto</h4><p><code>contextIsolation: true</code> e <code>nodeIntegration: false</code>: a interface web não tem acesso ao Node.js. Só a API mínima <code>ghostAPI</code> é exposta via <code>contextBridge</code>.</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Handler de permissões restritivo</h4><p>O app concede apenas <code>media</code>, <code>microphone</code> e <code>screen</code> — qualquer outra permissão solicitada é negada automaticamente.</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Clipboard via IPC nativo</h4><p>Escritas no clipboard passam por um canal IPC controlado (<code>clipboard-write</code>) em vez da API web de clipboard, reduzindo a superfície exposta ao renderer.</p></div></div>
+      <div class="sec-item"><div class="check">✓</div><div><h4>Modelos pesados no processo principal</h4><p>Whisper e o modelo de embeddings de voz rodam no main process, isolados da interface — o renderer nunca acessa o filesystem.</p></div></div>
+    </div>
+  </div>
+
+  <div style="height:36px"></div>
+
+  <h2 style="font-size:24px">Permissões do macOS: só o essencial</h2>
+  <div class="table-wrap" style="margin-top:20px">
+    <table class="cmp">
+      <thead><tr><th>Permissão</th><th>Por que é necessária</th><th>Obrigatória?</th></tr></thead>
+      <tbody>
+        <tr><td>🎤 Microfone</td><td>Capturar sua voz para transcrição local</td><td class="yes">Sim, para captura de mic</td></tr>
+        <tr><td>🖥️ Gravação de tela</td><td>Capturar áudio do sistema (reuniões, chamadas) via ScreenCaptureKit</td><td class="yes">Sim, para áudio do sistema</td></tr>
+        <tr><td>♿ Acessibilidade</td><td>Atalhos globais de teclado com o app em segundo plano</td><td style="color:var(--amber)">Opcional</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= VANTAGENS ================= -->
+<section id="vantagens" class="reveal">
+  <span class="kicker">Vantagens</span>
+  <h2>Por que local vence a nuvem</h2>
+  <p class="lead">Comparado a assistentes de IA baseados em nuvem, o Ghost AI elimina custos recorrentes, riscos de vazamento e dependência de terceiros.</p>
+
+  <div class="table-wrap">
+    <table class="cmp">
+      <thead>
+        <tr><th>Critério</th><th class="ghost-col">👻 Ghost AI (local)</th><th>Assistentes em nuvem</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Dados da conversa</td><td class="yes">Nunca saem da máquina</td><td class="no">Enviados a servidores de terceiros</td></tr>
+        <tr><td>Custo de uso</td><td class="yes">R$ 0 — sem assinatura ou tokens</td><td class="no">Assinatura mensal / cobrança por uso</td></tr>
+        <tr><td>Funciona offline</td><td class="yes">Sim (após download inicial dos modelos)</td><td class="no">Exige internet estável</td></tr>
+        <tr><td>Conformidade (LGPD / sigilo)</td><td class="yes">Dados sensíveis nunca transitam</td><td class="no">Depende de contratos e DPAs</td></tr>
+        <tr><td>Conta / cadastro</td><td class="yes">Não requer</td><td class="no">Login obrigatório</td></tr>
+        <tr><td>Telemetria</td><td class="yes">Zero</td><td class="no">Comum e nem sempre transparente</td></tr>
+        <tr><td>Escolha do modelo</td><td class="yes">Qualquer modelo do Ollama, troca instantânea</td><td class="no">Limitado ao catálogo do fornecedor</td></tr>
+        <tr><td>Latência</td><td class="yes">Local — sem ida e volta pela rede</td><td class="no">Sujeita à rede e a filas do servidor</td></tr>
+        <tr><td>Auditabilidade</td><td class="yes">Código aberto (MIT)</td><td class="no">Caixa-preta proprietária</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="height:44px"></div>
+
+  <div class="grid cols-3">
+    <div class="card"><div class="icon">🏢</div><h3>Reuniões corporativas</h3><p>Use IA em reuniões com informações confidenciais sem violar políticas de segurança da empresa — nada é transmitido.</p></div>
+    <div class="card"><div class="icon">⚖️</div><h3>Setores regulados</h3><p>Saúde, jurídico e financeiro: conteúdo sob sigilo profissional pode ser transcrito e resumido sem risco de exposição.</p></div>
+    <div class="card"><div class="icon">🎓</div><h3>Entrevistas e aulas</h3><p>Acompanhe conversas em outro idioma com tradução ao vivo, receba sugestões de resposta e gere resumos automáticos.</p></div>
+  </div>
+</section>
+
+<!-- ================= COMO COMEÇAR ================= -->
+<section id="comecar" class="reveal">
+  <span class="kicker">Como começar</span>
+  <h2>Rodando em 4 passos</h2>
+  <div class="steps" style="margin-top:28px">
+    <div class="step"><div><h4>Instale o Ollama</h4><p><code style="font-family:var(--mono);color:var(--cyan)">brew install ollama</code> e baixe um modelo: <code style="font-family:var(--mono);color:var(--cyan)">ollama pull gemma4:latest</code> (~3 GB). Modelos alternativos: llama3.2, mistral, gemma3:12b.</p></div></div>
+    <div class="step"><div><h4>Instale o Ghost AI</h4><p>Baixe o DMG, arraste para Aplicativos e abra. Na primeira execução (app não assinado), autorize em Ajustes &gt; Privacidade e Segurança &gt; "Abrir mesmo assim".</p></div></div>
+    <div class="step"><div><h4>Conceda as permissões</h4><p>Microfone (transcrição da sua voz) e Gravação de Tela (áudio do sistema para reuniões). O modelo Whisper (~118 MB) baixa automaticamente na primeira execução.</p></div></div>
+    <div class="step"><div><h4>Use em qualquer conversa</h4><p>Ponto verde = Ollama conectado. Selecione a fonte de áudio, grave, e receba transcrição + sugestões em tempo real. <strong>Cmd+Shift+G</strong> mostra/oculta o overlay.</p></div></div>
+  </div>
+</section>
+
+<!-- ================= STACK ================= -->
+<section id="stack" class="reveal">
+  <span class="kicker">Stack técnica</span>
+  <h2>Construído com tecnologias modernas</h2>
+  <p class="lead">Requisito: macOS 13+ (Ventura) — a captura de áudio do sistema depende do ScreenCaptureKit da Apple.</p>
+  <div class="stack-row">
+    <span class="tech">⚛️ React 18 <small>interface do overlay</small></span>
+    <span class="tech">🔷 TypeScript 5 <small>tipagem em todo o código</small></span>
+    <span class="tech">🖥️ Electron 42 <small>app nativo macOS</small></span>
+    <span class="tech">⚡ Vite <small>build e dev server</small></span>
+    <span class="tech">🎨 Tailwind CSS <small>estilo glassmorphism</small></span>
+    <span class="tech">🦙 Ollama <small>LLM local (gemma, llama, mistral…)</small></span>
+    <span class="tech">🎙️ Whisper (ONNX) <small>transcrição on-device (~118 MB)</small></span>
+    <span class="tech">🗣️ WavLM <small>embeddings de voz para diarização</small></span>
+    <span class="tech">🤗 Transformers.js v4 <small>runtime dos modelos</small></span>
+    <span class="tech">🧪 Vitest <small>suíte de testes</small></span>
+  </div>
+</section>
+
+<footer>
+  <div class="ghost">👻</div>
+  <p><strong>Ghost AI</strong> — Assistente de IA local e anônimo</p>
+  <p style="margin-top:6px">Zero nuvem · Zero telemetria · Zero custo por uso · Licença MIT</p>
+</footer>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.08 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
