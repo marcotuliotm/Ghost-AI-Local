@@ -5,7 +5,7 @@ import { AudioCapture } from '../components/AudioCapture'
 const defaultProps = {
   onTranscription: vi.fn(),
   onSummarize: vi.fn(),
-  onTranslate: vi.fn(),
+  onSummarizePT: vi.fn(),
   isConnected: true,
   settings: {
     selectedModel: 'gemma4:latest',
@@ -132,13 +132,13 @@ describe('AudioCapture', () => {
       window.ghostAPI.whisperLoad = vi.fn().mockResolvedValue({ status: 'ready' })
       const onTranscription = vi.fn()
       const onSummarize = vi.fn()
-      const onTranslate = vi.fn()
+      const onSummarizePT = vi.fn()
       render(
         <AudioCapture
           {...defaultProps}
           onTranscription={onTranscription}
           onSummarize={onSummarize}
-          onTranslate={onTranslate}
+          onSummarizePT={onSummarizePT}
         />
       )
       await waitFor(() => {

@@ -4,7 +4,7 @@ import { useWhisper } from '../hooks/useWhisper'
 interface AudioCaptureProps {
   onTranscription: (text: string) => void
   onSummarize: (text: string) => void
-  onTranslate: (text: string) => void
+  onSummarizePT: (text: string) => void
   onTranscriptChange?: (text: string) => void
   isConnected: boolean
   settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number; speakerThreshold: number }
@@ -114,7 +114,7 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
  *
  * Flow: each channel → Raw PCM → Whisper (text) [+ embedding for system] → labeled transcript
  */
-export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
+export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
   const [errorMsg, setErrorMsg] = useState('')
@@ -652,10 +652,10 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
     onSummarize(transcriptText.trim())
   }, [transcriptText, onSummarize])
 
-  const handleTranslateTranscript = useCallback(() => {
+  const handleSummarizePTTranscript = useCallback(() => {
     if (!transcriptText.trim()) return
-    onTranslate(transcriptText.trim())
-  }, [transcriptText, onTranslate])
+    onSummarizePT(transcriptText.trim())
+  }, [transcriptText, onSummarizePT])
 
   const handleClearTranscript = useCallback(() => {
     setSegments([])
@@ -997,11 +997,11 @@ export function AudioCapture({ onTranscription, onSummarize, onTranslate, onTran
                 Summarize
               </button>
               <button
-                onClick={handleTranslateTranscript}
+                onClick={handleSummarizePTTranscript}
                 disabled={!isConnected}
                 className="px-2 py-0.5 rounded text-[9px] font-medium bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25 dark:hover:bg-blue-500/35 disabled:opacity-30 transition-colors"
               >
-                Translate PT
+                Summary PT
               </button>
               <button
                 onClick={handleSaveTranscript}

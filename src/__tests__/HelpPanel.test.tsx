@@ -64,11 +64,11 @@ describe('HelpPanel', () => {
   })
 
   describe('audio buttons documentation', () => {
-    it('should document Translate PT button', () => {
+    it('should document Summary PT button', () => {
       render(<HelpPanel {...defaultProps} />)
-      // "Translate PT" appears as both icon span text and ButtonRow label
-      const translateElements = screen.getAllByText('Translate PT')
-      expect(translateElements.length).toBeGreaterThanOrEqual(1)
+      // "Summary PT" appears as both icon span text and ButtonRow label
+      const summaryPTElements = screen.getAllByText('Summary PT')
+      expect(summaryPTElements.length).toBeGreaterThanOrEqual(1)
     })
 
     it('should document Auto button', () => {

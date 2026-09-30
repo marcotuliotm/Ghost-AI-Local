@@ -201,7 +201,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ## Adding New Features
 
-### Adding a new audio action button (e.g., "Translate PT" pattern)
+### Adding a new audio action button (e.g., "Summary PT" pattern)
 
 1. **Add prop to `AudioCaptureProps`** in `src/components/AudioCapture.tsx`:
    ```typescript
@@ -218,7 +218,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
      onNewAction(transcript.trim())
    }, [transcript, onNewAction])
    ```
-4. **Add the button** in the button row (after Summarize/Translate PT, before Save)
+4. **Add the button** in the button row (after Summarize/Summary PT, before Save)
 5. **Wire it in `Overlay.tsx`** by passing the callback with the appropriate prompt to `sendMessage()`
 6. **Document in `HelpPanel.tsx`** under "Audio Buttons" section
 
