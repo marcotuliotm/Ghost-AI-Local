@@ -171,7 +171,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-blue-500/20 text-blue-400">Summary PT</span>}
               label="Summary PT"
-              description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics in Brazilian Portuguese (pt-BR)"
+              description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics, each with a short explanation, in Brazilian Portuguese (pt-BR)"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-success/20 text-ghost-success">Save</span>}

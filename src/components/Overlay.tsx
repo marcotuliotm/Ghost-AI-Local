@@ -368,7 +368,7 @@ export function Overlay({
               sendMessage(`Summarize the following conversation/audio transcription into clear bullet points with the key topics discussed:\n\n"${text}"`)
             }}
             onSummarizePT={(text) => {
-              sendMessage(`Summarize the following conversation/audio transcription into clear bullet points (topics) written in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the bullet points, nothing else:\n\n"${text}"`)
+              sendMessage(`Summarize the following conversation/audio transcription into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else:\n\n"${text}"`)
             }}
             onTranscriptChange={setCurrentTranscript}
             isConnected={isConnected}
