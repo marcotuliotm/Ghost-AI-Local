@@ -6,6 +6,15 @@ import App from '../App'
 // The setup.ts file mocks all ghostAPI methods.
 
 describe('App', () => {
+  describe('startup', () => {
+    it('should apply the default opacity without opening Settings', async () => {
+      render(<App />)
+      await waitFor(() => {
+        expect(window.ghostAPI.setOpacity).toHaveBeenCalledWith(0.9)
+      })
+    })
+  })
+
   describe('routing', () => {
     it('should render overlay by default', async () => {
       render(<App />)
