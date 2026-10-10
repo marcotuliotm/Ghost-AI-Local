@@ -32,6 +32,20 @@ const defaultProps = {
 }
 
 describe('SettingsPanel', () => {
+  describe('unsaved previews', () => {
+    it('should restore the saved opacity when leaving without saving', () => {
+      const onBack = vi.fn()
+      render(<SettingsPanel {...defaultProps} onBack={onBack} />)
+      const slider = screen.getAllByRole('slider')[0]
+      fireEvent.change(slider, { target: { value: '0.5' } })
+      expect(window.ghostAPI.setOpacity).toHaveBeenLastCalledWith(0.5)
+
+      fireEvent.click(screen.getAllByRole('button')[0]) // back arrow
+      expect(window.ghostAPI.setOpacity).toHaveBeenLastCalledWith(0.9)
+      expect(onBack).toHaveBeenCalled()
+    })
+  })
+
   describe('rendering', () => {
     it('should show Settings title', () => {
       render(<SettingsPanel {...defaultProps} />)

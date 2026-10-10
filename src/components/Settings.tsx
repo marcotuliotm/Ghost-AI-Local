@@ -32,6 +32,14 @@ export function SettingsPanel({
     onBack()
   }
 
+  // Opacity and font size preview live while dragging the sliders. Leaving
+  // without saving must put the saved values back.
+  const handleBack = () => {
+    window.ghostAPI.setOpacity(settings.opacity)
+    document.documentElement.style.setProperty('--ghost-font-size', `${settings.fontSize}px`)
+    onBack()
+  }
+
   const handleCheckConnection = async () => {
     setIsChecking(true)
     await onCheckConnection()
@@ -45,7 +53,7 @@ export function SettingsPanel({
       <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
         <div className="flex items-center gap-2">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="p-1 rounded hover:bg-ghost-fill-strong transition-colors no-drag"
           >
             <svg className="w-4 h-4 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">

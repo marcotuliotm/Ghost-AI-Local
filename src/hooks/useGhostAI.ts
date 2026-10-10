@@ -75,13 +75,9 @@ export function useGhostAI() {
 
     const removeDoneListener = window.ghostAPI.onStreamDone((fullResponse: string) => {
       setMessages(prev => {
-        const updated = [...prev]
-        const lastMsg = updated[updated.length - 1]
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          lastMsg.content = fullResponse
-          lastMsg.isStreaming = false
-        }
-        return updated
+        const lastMsg = prev[prev.length - 1]
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) return prev
+        return [...prev.slice(0, -1), { ...lastMsg, content: fullResponse, isStreaming: false }]
       })
       setIsStreaming(false)
       setCurrentStreamContent('')
@@ -98,12 +94,9 @@ export function useGhostAI() {
   useEffect(() => {
     if (isStreaming && currentStreamContent) {
       setMessages(prev => {
-        const updated = [...prev]
-        const lastMsg = updated[updated.length - 1]
-        if (lastMsg && lastMsg.role === 'assistant' && lastMsg.isStreaming) {
-          lastMsg.content = currentStreamContent
-        }
-        return [...updated]
+        const lastMsg = prev[prev.length - 1]
+        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) return prev
+        return [...prev.slice(0, -1), { ...lastMsg, content: currentStreamContent }]
       })
     }
   }, [currentStreamContent, isStreaming])
@@ -178,20 +171,17 @@ export function useGhostAI() {
 
     if (!result.success) {
       setMessages(prev => {
-        const updated = [...prev]
-        const lastMsg = updated[updated.length - 1]
-        if (lastMsg && lastMsg.role === 'assistant') {
-          const err = result.error || 'Unknown error'
-          // Only blame connectivity for actual connection failures. A 4xx from
-          // Ollama means it IS reachable but rejected the request (bad model,
-          // context too large, etc.) — show that reason instead of "is it running?".
-          const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i.test(err)
-          lastMsg.content = isConnectionIssue
-            ? `Error: ${err}\n\nIs Ollama running at ${settings.ollamaBaseUrl}? Start it with \`ollama serve\`.`
-            : `Error: ${err}`
-          lastMsg.isStreaming = false
-        }
-        return updated
+        const lastMsg = prev[prev.length - 1]
+        if (!lastMsg || lastMsg.role !== 'assistant') return prev
+        const err = result.error || 'Unknown error'
+        // Only blame connectivity for actual connection failures. A 4xx from
+        // Ollama means it IS reachable but rejected the request (bad model,
+        // context too large, etc.) — show that reason instead of "is it running?".
+        const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i.test(err)
+        const content = isConnectionIssue
+          ? `Error: ${err}\n\nIs Ollama running at ${settings.ollamaBaseUrl}? Start it with \`ollama serve\`.`
+          : `Error: ${err}`
+        return [...prev.slice(0, -1), { ...lastMsg, content, isStreaming: false }]
       })
       setIsStreaming(false)
     }

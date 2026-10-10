@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useWhisper } from '../hooks/useWhisper'
 
 interface AudioCaptureProps {
-  onTranscription: (text: string) => void
+  // Return false to signal the text was not consumed (Auto mode will retry it).
+  onTranscription: (text: string) => boolean | void
   onSummarize: (text: string) => void
   onSummarizePT: (text: string) => void
   onTranscriptChange?: (text: string) => void
@@ -122,6 +123,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   const [duration, setDuration] = useState(0)
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const isTranscribingRef = useRef(false)
   const [autoSend, setAutoSend] = useState(false)
   const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
@@ -254,18 +256,22 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16
   }, [])
 
+  // One Auto-send pass. The parent may decline (e.g. a reply is still streaming);
+  // in that case keep the text pending so the next tick retries instead of
+  // silently losing that part of the conversation.
+  const autoSendTick = useCallback(() => {
+    const text = lastTranscriptRef.current.trim()
+    if (!text || text === lastAutoSentRef.current) return
+    if (onTranscriptionRef.current(text) === false) return
+    lastAutoSentRef.current = text
+  }, [])
+
   // Keep autoSend ref in sync + manage auto-send timer
   useEffect(() => {
     autoSendRef.current = autoSend
     if (autoSend && isListeningRef.current) {
       if (autoSendTimerRef.current) clearInterval(autoSendTimerRef.current)
-      autoSendTimerRef.current = setInterval(() => {
-        const text = lastTranscriptRef.current.trim()
-        if (text && text !== lastAutoSentRef.current) {
-          lastAutoSentRef.current = text
-          onTranscriptionRef.current(text)
-        }
-      }, autoSendIntervalRef.current * 1000)
+      autoSendTimerRef.current = setInterval(autoSendTick, autoSendIntervalRef.current * 1000)
     } else {
       if (autoSendTimerRef.current) {
         clearInterval(autoSendTimerRef.current)
@@ -278,7 +284,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
         autoSendTimerRef.current = null
       }
     }
-  }, [autoSend])
+  }, [autoSend, autoSendTick])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -404,8 +410,12 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
 
   // Run a transcription pass over whichever channels have audio
   const runTranscription = useCallback(async () => {
-    if (isTranscribing) return
+    // Read the guard from a ref: the capture interval keeps the closure from when
+    // the graph was built, so state would always look `false` there and passes
+    // would pile up (and finish out of order) when Whisper is slower than the interval.
+    if (isTranscribingRef.current) return
     if (micChunksRef.current.length === 0 && systemChunksRef.current.length === 0) return
+    isTranscribingRef.current = true
     setIsTranscribing(true)
     try {
       // System first so its embedding call doesn't delay the (cheaper) mic text
@@ -414,9 +424,10 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     } catch (err: any) {
       console.error('Transcription error:', err)
     } finally {
+      isTranscribingRef.current = false
       setIsTranscribing(false)
     }
-  }, [isTranscribing, transcribeChannel])
+  }, [transcribeChannel])
 
   // Wire a single stream into the audio graph, capturing its PCM into the
   // channel-specific buffer and feeding the shared level-meter analyser.
@@ -511,13 +522,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
 
         // Restart auto-send timer if it was active
         if (autoSendRef.current) {
-          autoSendTimerRef.current = setInterval(() => {
-            const text = lastTranscriptRef.current.trim()
-            if (text && text !== lastAutoSentRef.current) {
-              lastAutoSentRef.current = text
-              onTranscriptionRef.current(text)
-            }
-          }, autoSendIntervalRef.current * 1000)
+          autoSendTimerRef.current = setInterval(autoSendTick, autoSendIntervalRef.current * 1000)
         }
 
         console.log('[AudioCapture] Stream restarted successfully')
@@ -531,31 +536,28 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     }
 
     restartCapture()
-  }, [streamDied, stopCapture, buildGraph])
+  }, [streamDied, stopCapture, buildGraph, autoSendTick])
 
   // Keep autoSendInterval ref in sync and restart auto-send timer if active
   useEffect(() => {
     autoSendIntervalRef.current = autoSendInterval
     if (autoSendRef.current && autoSendTimerRef.current) {
       clearInterval(autoSendTimerRef.current)
-      autoSendTimerRef.current = setInterval(() => {
-        const text = lastTranscriptRef.current.trim()
-        if (text && text !== lastAutoSentRef.current) {
-          lastAutoSentRef.current = text
-          onTranscriptionRef.current(text)
-        }
-      }, autoSendInterval * 1000)
+      autoSendTimerRef.current = setInterval(autoSendTick, autoSendInterval * 1000)
     }
-  }, [autoSendInterval])
+  }, [autoSendInterval, autoSendTick])
 
   // Get microphone stream
   const getMicStream = async (): Promise<MediaStream> => {
+    let granted = true
     try {
-      const perm = await window.ghostAPI.requestMicPermission()
-      if (!perm.granted) {
-        throw new Error('Microphone permission denied. Enable in System Settings > Privacy > Microphone.')
-      }
-    } catch {}
+      granted = (await window.ghostAPI.requestMicPermission()).granted
+    } catch {
+      // The permission query itself failed; let getUserMedia decide below.
+    }
+    if (!granted) {
+      throw new Error('Microphone permission denied. Enable in System Settings > Privacy > Microphone.')
+    }
 
     return navigator.mediaDevices.getUserMedia({
       audio: {

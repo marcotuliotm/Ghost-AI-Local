@@ -14,6 +14,12 @@ export default function App() {
     document.documentElement.style.setProperty('--ghost-font-size', `${ghostAI.settings.fontSize}px`)
   }, [ghostAI.settings.fontSize])
 
+  // Apply the saved opacity at startup and whenever it changes. Without this the
+  // default (0.9) only took effect after the user touched the Settings slider.
+  useEffect(() => {
+    window.ghostAPI.setOpacity(ghostAI.settings.opacity)
+  }, [ghostAI.settings.opacity])
+
   useEffect(() => {
     const removeSettingsListener = window.ghostAPI.onOpenSettings(() => {
       setView('settings')
