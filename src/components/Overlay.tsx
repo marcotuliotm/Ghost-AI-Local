@@ -1,10 +1,25 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, type RefObject } from 'react'
 import type { ChatMessage, OllamaModel, Settings } from '../types'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { AudioCapture } from './AudioCapture'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
 import type { SendMessageOptions } from '../hooks/useGhostAI'
+import { fillSuggestReplyPrompt, getActivePreset } from '../lib/presets'
+import { buildMeetingNotesRequest, normalizeNotesMarkdown, notesDocument, notesLanguage } from '../lib/notes'
+import { fileStamp, suggestFilename } from '../lib/filename'
+
+// Close a dropdown when clicking outside of it
+function useClickOutside(ref: RefObject<HTMLElement>, open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close()
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [ref, open, close])
+}
 
 interface OverlayProps {
   messages: ChatMessage[]
@@ -12,6 +27,7 @@ interface OverlayProps {
   isConnected: boolean
   models: OllamaModel[]
   settings: Settings
+  settingsLoaded?: boolean
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -28,6 +44,7 @@ export function Overlay({
   isConnected,
   models,
   settings,
+  settingsLoaded = true,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -38,24 +55,21 @@ export function Overlay({
 }: OverlayProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [showModelMenu, setShowModelMenu] = useState(false)
+  const [showPresetMenu, setShowPresetMenu] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
+  const presetMenuRef = useRef<HTMLDivElement>(null)
   // Transcript context (running summary + recent verbatim), built per request
   const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected)
+  // Supplies the Suggest reply template and the quick actions (useGhostAI uses its system prompt)
+  const activePreset = getActivePreset(settings)
 
-  // Close the model menu when clicking outside
-  useEffect(() => {
-    if (!showModelMenu) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setShowModelMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showModelMenu])
+  const closeModelMenu = useCallback(() => setShowModelMenu(false), [])
+  const closePresetMenu = useCallback(() => setShowPresetMenu(false), [])
+  useClickOutside(modelMenuRef, showModelMenu, closeModelMenu)
+  useClickOutside(presetMenuRef, showPresetMenu, closePresetMenu)
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -87,8 +101,7 @@ export function Overlay({
     try {
       // Format conversation as text
       const now = new Date()
-      const dateStr = now.toISOString().slice(0, 10) // 2026-05-25
-      const timeStr = now.toTimeString().slice(0, 5).replace(':', 'h') // 14h30
+      const { date: dateStr, time: timeStr } = fileStamp(now)
 
       const chatText = messages
         .filter(m => m.role !== 'system')
@@ -102,51 +115,55 @@ export function Overlay({
 
       // Ask Ollama to generate a short filename from the conversation
       let suggestedName = `conversation_${dateStr}_${timeStr}`
-
       if (isConnected) {
-        try {
-          const summary = messages
-            .filter(m => m.role !== 'system')
-            .slice(0, 6)
-            .map(m => m.content.slice(0, 100))
-            .join(' ')
-
-          const result = await window.ghostAPI.ollamaChat({
-            model: settings.selectedModel,
-            baseUrl: settings.ollamaBaseUrl,
-            messages: [
-              {
-                role: 'system',
-                content: 'Generate a very short filename (2-4 words, no spaces use underscores, lowercase, no extension, no special chars, english) that describes this conversation topic. Reply with ONLY the filename, nothing else.',
-              },
-              { role: 'user', content: summary },
-            ],
-          })
-
-          if (result.success && result.message?.content) {
-            const aiName = result.message.content
-              .trim()
-              .toLowerCase()
-              .replace(/[^a-z0-9_]/g, '_')
-              .replace(/_+/g, '_')
-              .replace(/^_|_$/g, '')
-              .slice(0, 40)
-
-            if (aiName.length > 2) {
-              suggestedName = `${aiName}_${dateStr}`
-            }
-          }
-        } catch {}
+        const summary = messages
+          .filter(m => m.role !== 'system')
+          .slice(0, 6)
+          .map(m => m.content.slice(0, 100))
+          .join(' ')
+        const aiName = await suggestFilename(settings, summary, 'conversation')
+        if (aiName) suggestedName = `${aiName}_${dateStr}`
       }
 
       await window.ghostAPI.saveConversation({
         content: fullContent,
         suggestedName: `${suggestedName}.txt`,
+        format: 'txt',
       })
     } finally {
       setIsSaving(false)
     }
   }, [messages, settings, isConnected, isSaving])
+
+  // Meeting notes from the transcript context (summary + recent verbatim),
+  // trimmed to the prompt budget, written in the conversation's language.
+  // Sent without chat history; the reply is tagged so its bubble offers Save .md.
+  const handleGenerateNotes = useCallback(() => {
+    const language = notesLanguage(settings.whisperModel, settings.transcriptionLanguage)
+    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language)
+    if (!request.context) return
+    sendMessage(request.prompt, undefined, {
+      context: request.context,
+      systemPrompt: request.systemPrompt,
+      standalone: true,
+      kind: 'notes',
+    })
+  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, sendMessage])
+
+  const handleSaveNotes = useCallback(async (markdown: string) => {
+    const now = new Date()
+    const { date, time } = fileStamp(now)
+    let suggestedName = `meeting_notes_${date}_${time}`
+    if (isConnected) {
+      const aiName = await suggestFilename(settings, normalizeNotesMarkdown(markdown).slice(0, 500), 'meeting')
+      if (aiName) suggestedName = `notes_${aiName}_${date}`
+    }
+    await window.ghostAPI.saveConversation({
+      content: notesDocument(markdown, { date: now, model: settings.selectedModel, preset: activePreset.name }),
+      suggestedName: `${suggestedName}.md`,
+      format: 'md',
+    })
+  }, [isConnected, settings, activePreset.name])
 
   return (
     <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
@@ -167,6 +184,40 @@ export function Overlay({
         </div>
 
         <div className="flex items-center gap-0.5 no-drag">
+          {/* Preset switcher */}
+          <div className="relative" ref={presetMenuRef}>
+            <button
+              onClick={() => setShowPresetMenu(prev => !prev)}
+              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              title={`Change preset (${activePreset.name})`}
+            >
+              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </button>
+
+            {showPresetMenu && (
+              <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto popover rounded-lg z-50 py-1" role="menu" aria-label="Presets">
+                {settings.presets.map(preset => (
+                  <button
+                    key={preset.id}
+                    role="menuitem"
+                    onClick={() => {
+                      updateSettings({ activePresetId: preset.id })
+                      setShowPresetMenu(false)
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
+                      preset.id === activePreset.id ? 'text-ghost-accent' : 'text-ghost-text-muted'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${preset.id === activePreset.id ? 'bg-ghost-accent' : 'bg-transparent'}`} />
+                    <span className="truncate">{preset.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Model switcher */}
           <div className="relative" ref={modelMenuRef}>
             <button
@@ -316,26 +367,21 @@ export function Overlay({
           )}
 
           {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble key={msg.id} message={msg} onSaveNotes={handleSaveNotes} />
           ))}
           <div ref={messagesEndRef} />
       </div>
 
       {/* Quick Actions */}
-      {messages.length > 0 && !isStreaming && (
+      {messages.length > 0 && !isStreaming && activePreset.quickActions.length > 0 && (
         <div className="px-3 py-1 flex gap-1 overflow-x-auto no-drag">
-          <QuickAction
-            label="Summarize"
-            onClick={() => sendMessage('Summarize the conversation so far in key points.', undefined, { context: getTranscriptContext() })}
-          />
-          <QuickAction
-            label="Suggest reply"
-            onClick={() => sendMessage('Based on the context, suggest what I should respond now.', undefined, { context: getTranscriptContext() })}
-          />
-          <QuickAction
-            label="Next steps"
-            onClick={() => sendMessage('What are the logical next steps?', undefined, { context: getTranscriptContext() })}
-          />
+          {activePreset.quickActions.map((action, i) => (
+            <QuickAction
+              key={`${i}-${action.label}`}
+              label={action.label}
+              onClick={() => sendMessage(action.prompt, undefined, { context: getTranscriptContext() })}
+            />
+          ))}
         </div>
       )}
 
@@ -348,9 +394,7 @@ export function Overlay({
               if (isStreaming) return false
               // `text` is only the new/recent excerpt; the rest of the
               // conversation rides along as transcript context.
-              const prompt = (settings.suggestReplyPrompt || 'The other person said: "{{transcript}}"\n\nSuggest a short, natural response to continue this conversation.')
-                .replace('{{transcript}}', text)
-              sendMessage(prompt, undefined, { context: getTranscriptContext() })
+              sendMessage(fillSuggestReplyPrompt(activePreset.suggestReplyPrompt, text), undefined, { context: getTranscriptContext() })
             }}
             onSummarize={() => {
               sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext() })
@@ -358,8 +402,10 @@ export function Overlay({
             onSummarizePT={() => {
               sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext() })
             }}
+            onNotes={handleGenerateNotes}
             onTranscriptChange={setCurrentTranscript}
             isConnected={isConnected}
+            canLoadWhisper={settingsLoaded}
             settings={settings}
           />
       </div>

@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react'
-import type { Settings, OllamaModel } from '../types'
+import type { Settings, OllamaModel, Preset } from '../types'
+import {
+  createPreset,
+  deletePreset,
+  duplicatePreset,
+  getActivePreset,
+  isBuiltInPreset,
+  restorePreset,
+  updatePreset,
+} from '../lib/presets'
+import {
+  formatModelSize,
+  isEnglishOnlyModel,
+  TRANSCRIPTION_LANGUAGES,
+  WHISPER_MODELS,
+} from '../lib/whisper'
 
 const CONTEXT_LENGTH_OPTIONS = [4096, 8192, 16384, 32768]
+
+const SELECT_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none'
+const TEXTAREA_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none'
+const SMALL_BUTTON_CLASS = 'px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong hover:text-ghost-text transition-colors disabled:opacity-30'
 
 interface SettingsPanelProps {
   settings: Settings
@@ -41,6 +60,20 @@ export function SettingsPanel({
     document.documentElement.style.setProperty('--ghost-font-size', `${settings.fontSize}px`)
     onBack()
   }
+
+  // Preset edits stay local until Save, like every other setting.
+  const editPresets = (fn: (presets: Preset[], activeId: string) => { presets: Preset[]; activePresetId?: string }) => {
+    setLocalSettings(prev => {
+      const result = fn(prev.presets, prev.activePresetId)
+      return { ...prev, presets: result.presets, activePresetId: result.activePresetId ?? prev.activePresetId }
+    })
+  }
+  const editActivePreset = (patch: Partial<Omit<Preset, 'id'>>) =>
+    editPresets((presets, activeId) => ({ presets: updatePreset(presets, activeId, patch) }))
+
+  const activePreset = getActivePreset(localSettings)
+  const activeIsBuiltIn = isBuiltInPreset(activePreset.id)
+  const englishOnlyWhisper = isEnglishOnlyModel(localSettings.whisperModel)
 
   const handleCheckConnection = async () => {
     setIsChecking(true)
@@ -106,7 +139,7 @@ export function SettingsPanel({
             <select
               value={localSettings.selectedModel}
               onChange={e => setLocalSettings(prev => ({ ...prev, selectedModel: e.target.value }))}
-              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none"
+              className={SELECT_CLASS}
             >
               {models.length === 0 && (
                 <option value="">No models found</option>
@@ -127,7 +160,7 @@ export function SettingsPanel({
               id="context-length"
               value={localSettings.contextLength}
               onChange={e => setLocalSettings(prev => ({ ...prev, contextLength: parseInt(e.target.value) }))}
-              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none"
+              className={SELECT_CLASS}
             >
               {CONTEXT_LENGTH_OPTIONS.map(n => (
                 <option key={n} value={n}>{n.toLocaleString('en-US')} tokens</option>
@@ -139,29 +172,149 @@ export function SettingsPanel({
           </div>
         </Section>
 
-        {/* System Prompt */}
-        <Section title="System Prompt">
-          <textarea
-            value={localSettings.systemPrompt}
-            onChange={e => setLocalSettings(prev => ({ ...prev, systemPrompt: e.target.value }))}
-            rows={6}
-            className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none"
-            placeholder="Instructions for the assistant..."
-          />
-        </Section>
+        {/* Presets */}
+        <Section title="Presets">
+          <div className="space-y-2">
+            <label htmlFor="active-preset" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+              Active preset
+            </label>
+            <select
+              id="active-preset"
+              value={activePreset.id}
+              onChange={e => {
+                const activePresetId = e.target.value
+                editPresets(presets => ({ presets, activePresetId }))
+              }}
+              className={SELECT_CLASS}
+            >
+              {localSettings.presets.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{isBuiltInPreset(p.id) ? ' (built-in)' : ''}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => editPresets(presets => {
+                  const r = createPreset(presets)
+                  return { presets: r.presets, activePresetId: r.id }
+                })}
+                className={SMALL_BUTTON_CLASS}
+              >
+                New
+              </button>
+              <button
+                onClick={() => editPresets((presets, activeId) => {
+                  const r = duplicatePreset(presets, activeId)
+                  return r ? { presets: r.presets, activePresetId: r.id } : { presets }
+                })}
+                className={SMALL_BUTTON_CLASS}
+              >
+                Duplicate
+              </button>
+              {activeIsBuiltIn ? (
+                <button
+                  onClick={() => editPresets((presets, activeId) => ({ presets: restorePreset(presets, activeId) }))}
+                  className={SMALL_BUTTON_CLASS}
+                  title="Put this built-in preset back to its original prompts and quick actions"
+                >
+                  Restore defaults
+                </button>
+              ) : (
+                <button
+                  onClick={() => editPresets((presets, activeId) => {
+                    const remaining = deletePreset(presets, activeId)
+                    return { presets: remaining, activePresetId: remaining[0]?.id }
+                  })}
+                  className={`${SMALL_BUTTON_CLASS} hover:text-ghost-error`}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
 
-        {/* Suggest Reply Prompt */}
-        <Section title="Suggest Reply Prompt">
-          <textarea
-            value={localSettings.suggestReplyPrompt}
-            onChange={e => setLocalSettings(prev => ({ ...prev, suggestReplyPrompt: e.target.value }))}
-            rows={4}
-            className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none"
-            placeholder="Prompt sent when using Suggest Reply or Auto..."
-          />
-          <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
-            Use <code className="bg-ghost-fill-strong px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode.
-          </p>
+            <label htmlFor="preset-name" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+              Name
+            </label>
+            <input
+              id="preset-name"
+              type="text"
+              value={activePreset.name}
+              onChange={e => editActivePreset({ name: e.target.value })}
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
+            />
+
+            <label htmlFor="preset-system-prompt" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+              System prompt
+            </label>
+            <textarea
+              id="preset-system-prompt"
+              value={activePreset.systemPrompt}
+              onChange={e => editActivePreset({ systemPrompt: e.target.value })}
+              rows={6}
+              className={TEXTAREA_CLASS}
+              placeholder="Instructions for the assistant..."
+            />
+
+            <label htmlFor="preset-suggest-reply" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+              Suggest reply prompt
+            </label>
+            <textarea
+              id="preset-suggest-reply"
+              value={activePreset.suggestReplyPrompt}
+              onChange={e => editActivePreset({ suggestReplyPrompt: e.target.value })}
+              rows={4}
+              className={TEXTAREA_CLASS}
+              placeholder="Prompt sent when using Suggest Reply or Auto..."
+            />
+            <p className="text-[9px] text-ghost-text-muted opacity-60">
+              Use <code className="bg-ghost-fill-strong px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode (which sends only what was said since its last send).
+            </p>
+
+            <div className="text-[10px] text-ghost-text-muted uppercase tracking-wider pt-1">Quick actions</div>
+            <div className="space-y-1.5">
+              {activePreset.quickActions.map((action, i) => (
+                <div key={i} className="flex gap-1 items-start">
+                  <input
+                    type="text"
+                    aria-label={`Quick action ${i + 1} label`}
+                    value={action.label}
+                    onChange={e => editActivePreset({
+                      quickActions: activePreset.quickActions.map((qa, j) => (j === i ? { ...qa, label: e.target.value } : qa)),
+                    })}
+                    placeholder="Label"
+                    className="w-24 flex-shrink-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-[10px] text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors"
+                  />
+                  <textarea
+                    aria-label={`Quick action ${i + 1} prompt`}
+                    value={action.prompt}
+                    onChange={e => editActivePreset({
+                      quickActions: activePreset.quickActions.map((qa, j) => (j === i ? { ...qa, prompt: e.target.value } : qa)),
+                    })}
+                    rows={2}
+                    placeholder="Prompt sent to the model"
+                    className="flex-1 min-w-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-[10px] text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors resize-none"
+                  />
+                  <button
+                    onClick={() => editActivePreset({ quickActions: activePreset.quickActions.filter((_, j) => j !== i) })}
+                    className="p-1 rounded text-ghost-text-muted hover:text-ghost-error hover:bg-ghost-fill-strong transition-colors"
+                    title="Remove quick action"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => editActivePreset({ quickActions: [...activePreset.quickActions, { label: 'New action', prompt: '' }] })}
+                className={SMALL_BUTTON_CLASS}
+              >
+                + Add quick action
+              </button>
+            </div>
+            <p className="text-[9px] text-ghost-text-muted opacity-60">
+              Quick actions appear above the chat input. The live transcript is sent along as context.
+            </p>
+          </div>
         </Section>
 
         {/* Appearance */}
@@ -209,6 +362,52 @@ export function SettingsPanel({
         {/* Transcription */}
         <Section title="Transcription">
           <div className="space-y-3">
+            <div className="space-y-1">
+              <label htmlFor="whisper-model" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+                Whisper model
+              </label>
+              <select
+                id="whisper-model"
+                value={localSettings.whisperModel}
+                onChange={e => {
+                  const whisperModel = e.target.value
+                  setLocalSettings(prev => ({ ...prev, whisperModel }))
+                }}
+                className={SELECT_CLASS}
+              >
+                {WHISPER_MODELS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {formatModelSize(m.sizeMB)}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[9px] text-ghost-text-muted opacity-60">
+                Larger models are more accurate but slower. Downloaded once on first use and cached locally. Changing the model reloads Whisper (after the current recording stops).
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="transcription-language" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+                Language
+              </label>
+              <select
+                id="transcription-language"
+                value={localSettings.transcriptionLanguage}
+                onChange={e => {
+                  const transcriptionLanguage = e.target.value
+                  setLocalSettings(prev => ({ ...prev, transcriptionLanguage }))
+                }}
+                className={SELECT_CLASS}
+              >
+                {TRANSCRIPTION_LANGUAGES.map(l => (
+                  <option key={l.id} value={l.id}>{l.label}</option>
+                ))}
+              </select>
+              <p className="text-[9px] text-ghost-text-muted opacity-60">
+                {englishOnlyWhisper
+                  ? 'English-only model: it always transcribes English and ignores this setting. Pick a multilingual model for other languages.'
+                  : 'Language spoken in the audio. Auto-detect works per phrase and can misfire on short phrases; pick the language when you know it.'}
+              </p>
+            </div>
             <div>
               <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
                 Max phrase length: {localSettings.transcriptionInterval}s

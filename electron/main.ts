@@ -16,6 +16,8 @@ import {
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import Store from 'electron-store'
+import { DEFAULT_WHISPER_MODEL, isWhisperModel, whisperGenerateOptions } from '../src/lib/whisper'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
 // Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
@@ -29,7 +31,7 @@ app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreen
 
 // Avoid the macOS "ghost-ai Safe Storage" keychain prompt. Chromium stores an
 // encryption key in the login keychain to encrypt its local network/cookie data;
-// since Ghost AI keeps nothing sensitive on disk (settings are in-memory, no
+// since Ghost AI keeps nothing sensitive on disk (only plain-JSON settings, no
 // cookies/secrets), use a mock keychain so the OS never prompts for the password.
 app.commandLine.appendSwitch('use-mock-keychain')
 
@@ -37,10 +39,24 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isOverlayVisible = true
 
-// Whisper state (main process singleton)
+// Whisper state (main process singleton). One pipeline at a time; switching
+// models disposes the current one before loading the next.
 let whisperPipeline: any = null
-let whisperLoading = false
+let whisperModelId: string | null = null // model of whisperPipeline
+let whisperLoading: { model: string; promise: Promise<WhisperLoadResult> } | null = null
 let whisperError: string | null = null
+// Transcription in progress — a model switch waits for it before disposing.
+let whisperBusy: Promise<unknown> | null = null
+
+type WhisperLoadResult = { status: 'ready' | 'error'; model: string; error?: string }
+
+// Settings persistence: userData/settings.json. The renderer owns the schema
+// (it merges what's stored with its defaults), so this just stores the object.
+let settingsStore: Store | null = null
+function getSettingsStore(): Store {
+  if (!settingsStore) settingsStore = new Store({ name: 'settings' })
+  return settingsStore
+}
 
 // Speaker-embedding state (for diarization / labeling speakers A/B/C)
 let embedModel: any = null
@@ -377,6 +393,113 @@ function registerShortcuts() {
 const ollamaFetch: typeof globalThis.fetch = (input: any, init?: any) =>
   (net.fetch as any)(input, init)
 
+function sendWhisperProgress(status: string, message: string, progress: number, model?: string) {
+  mainWindow?.webContents.send('whisper-progress', { status, message, progress, model })
+}
+
+// Load `model`, replacing whatever is loaded. Requests queue behind a load in
+// progress; a request for the model already loading shares that load.
+async function loadWhisper(model: string): Promise<WhisperLoadResult> {
+  while (whisperLoading) {
+    if (whisperLoading.model === model) return whisperLoading.promise
+    await whisperLoading.promise.catch(() => {})
+  }
+  if (whisperPipeline && whisperModelId === model) return { status: 'ready', model }
+
+  const promise = createWhisperPipeline(model)
+  whisperLoading = { model, promise }
+  try {
+    return await promise
+  } finally {
+    if (whisperLoading?.promise === promise) whisperLoading = null
+  }
+}
+
+async function createWhisperPipeline(model: string): Promise<WhisperLoadResult> {
+  whisperError = null
+
+  // Unload the current model first so two models are never in memory at once.
+  if (whisperPipeline) {
+    await whisperBusy?.catch(() => {})
+    const old = whisperPipeline
+    whisperPipeline = null
+    whisperModelId = null
+    try {
+      await old.dispose?.()
+    } catch (err) {
+      console.warn('[whisper] Failed to dispose previous pipeline:', err)
+    }
+  }
+
+  // Use Chromium's net.fetch for HuggingFace downloads.
+  // Node's undici fetch can fail on HuggingFace's 302 redirect chain.
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: any, init?: any) => {
+    try {
+      return await (net.fetch as any)(input, init)
+    } catch {
+      return originalFetch(input, init)
+    }
+  }) as typeof globalThis.fetch
+
+  try {
+    const { pipeline, env } = await import('@huggingface/transformers')
+
+    // CRITICAL: default cacheDir resolves to inside the asar archive in
+    // production. Native onnxruntime-node addon can't read .onnx files from
+    // asar, causing a silent hang. Redirect cache to a real writable directory.
+    const cacheDir = path.join(app.getPath('userData'), 'whisper-models')
+    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
+    env.cacheDir = cacheDir
+
+    // Don't look for models inside node_modules (also inside asar in prod)
+    env.allowLocalModels = false
+
+    const shortName = model.split('/').pop()
+    sendWhisperProgress('download', `Loading ${shortName}...`, 0, model)
+
+    const pipe = await pipeline('automatic-speech-recognition', model, {
+      progress_callback: (data: any) => {
+        if (data.status === 'progress') {
+          let pct = 0
+          if (typeof data.progress === 'number') {
+            pct = Math.round(data.progress)
+          } else if (data.total) {
+            pct = Math.round((data.loaded / data.total) * 100)
+          }
+          const loaded = data.loaded ? `${(data.loaded / 1024 / 1024).toFixed(1)}MB` : ''
+          const total = data.total ? ` / ${(data.total / 1024 / 1024).toFixed(1)}MB` : ''
+          const file = data.file ? ` (${data.file.split('/').pop()})` : ''
+          sendWhisperProgress(
+            'download',
+            pct > 0 ? `Downloading${file}... ${pct}% ${loaded}${total}` : `Downloading${file}... ${loaded}`,
+            pct,
+            model,
+          )
+        } else if (data.status === 'initiate') {
+          const file = data.file ? ` ${data.file.split('/').pop()}` : ''
+          sendWhisperProgress('download', `Loading${file}...`, 10, model)
+        } else if (data.status === 'done') {
+          const file = data.file ? data.file.split('/').pop() : ''
+          sendWhisperProgress('download', file ? `Loaded ${file}` : 'Initializing...', 90, model)
+        }
+        // 'ready' is sent below, once whisperModelId is set
+      },
+    })
+
+    whisperPipeline = pipe
+    whisperModelId = model
+    sendWhisperProgress('ready', 'Whisper ready', 100, model)
+    return { status: 'ready', model }
+  } catch (err: any) {
+    whisperError = err.message || 'Failed to load Whisper'
+    sendWhisperProgress('error', whisperError!, 0, model)
+    return { status: 'error', model, error: whisperError! }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 // IPC Handlers
 function setupIPC() {
   // Ollama chat
@@ -385,6 +508,7 @@ function setupIPC() {
     messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
     options?: { num_ctx?: number }
+    think?: boolean
   }) => {
     try {
       const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
@@ -394,6 +518,8 @@ function setupIPC() {
           model: payload.model,
           messages: payload.messages,
           stream: false,
+          // Thinking models otherwise reason for minutes before a one-line answer
+          ...(payload.think !== undefined ? { think: payload.think } : {}),
           // num_ctx: without it Ollama silently truncates long prompts to its
           // small default window, dropping the system prompt / oldest context.
           ...(payload.options ? { options: payload.options } : {}),
@@ -588,145 +714,43 @@ function setupIPC() {
     return { status: 'granted' }
   })
 
-  // Whisper - load model
-  ipcMain.handle('whisper-load', async () => {
-    if (whisperPipeline) return { status: 'ready' }
-    if (whisperLoading) return { status: 'loading' }
-
-    whisperLoading = true
-    whisperError = null
-
-    // Use Chromium's net.fetch for HuggingFace downloads.
-    // Node's undici fetch can fail on HuggingFace's 302 redirect chain.
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = (async (input: any, init?: any) => {
-      try {
-        return await (net.fetch as any)(input, init)
-      } catch {
-        return originalFetch(input, init)
-      }
-    }) as typeof globalThis.fetch
-
-    try {
-      const { pipeline, env } = await import('@huggingface/transformers')
-
-      // CRITICAL: default cacheDir resolves to inside the asar archive in
-      // production. Native onnxruntime-node addon can't read .onnx files from
-      // asar, causing a silent hang. Redirect cache to a real writable directory.
-      const cacheDir = path.join(app.getPath('userData'), 'whisper-models')
-      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
-      env.cacheDir = cacheDir
-
-      // Don't look for models inside node_modules (also inside asar in prod)
-      env.allowLocalModels = false
-
-      mainWindow?.webContents.send('whisper-progress', {
-        status: 'download',
-        message: 'Loading Whisper model...',
-        progress: 0,
-      })
-
-      whisperPipeline = await pipeline(
-        'automatic-speech-recognition',
-        'onnx-community/whisper-tiny',
-        {
-          progress_callback: (data: any) => {
-            if (data.status === 'progress') {
-              let pct = 0
-              if (typeof data.progress === 'number') {
-                pct = Math.round(data.progress)
-              } else if (data.total) {
-                pct = Math.round((data.loaded / data.total) * 100)
-              }
-              const loaded = data.loaded ? `${(data.loaded / 1024 / 1024).toFixed(1)}MB` : ''
-              const total = data.total ? ` / ${(data.total / 1024 / 1024).toFixed(1)}MB` : ''
-              const file = data.file ? ` (${data.file.split('/').pop()})` : ''
-              mainWindow?.webContents.send('whisper-progress', {
-                status: 'download',
-                message: pct > 0
-                  ? `Downloading${file}... ${pct}% ${loaded}${total}`
-                  : `Downloading${file}... ${loaded}`,
-                progress: pct,
-              })
-            } else if (data.status === 'initiate') {
-              const file = data.file ? ` ${data.file.split('/').pop()}` : ''
-              mainWindow?.webContents.send('whisper-progress', {
-                status: 'download',
-                message: `Loading${file}...`,
-                progress: 10,
-              })
-            } else if (data.status === 'done') {
-              const file = data.file ? data.file.split('/').pop() : ''
-              mainWindow?.webContents.send('whisper-progress', {
-                status: 'download',
-                message: file ? `Loaded ${file}` : 'Initializing...',
-                progress: 90,
-              })
-            } else if (data.status === 'ready') {
-              mainWindow?.webContents.send('whisper-progress', {
-                status: 'ready',
-                message: 'Whisper ready',
-                progress: 100,
-              })
-            }
-          },
-        },
-      )
-
-      whisperLoading = false
-      globalThis.fetch = originalFetch
-      mainWindow?.webContents.send('whisper-progress', {
-        status: 'ready',
-        message: 'Whisper ready',
-        progress: 100,
-      })
-      return { status: 'ready' }
-    } catch (err: any) {
-      whisperLoading = false
-      globalThis.fetch = originalFetch
-      whisperError = err.message || 'Failed to load Whisper'
-      mainWindow?.webContents.send('whisper-progress', {
-        status: 'error',
-        message: whisperError,
-        progress: 0,
-      })
-      return { status: 'error', error: whisperError }
-    }
+  // Whisper - load model. A different model than the loaded one replaces it;
+  // loads are serialized so two requests never build pipelines concurrently.
+  ipcMain.handle('whisper-load', async (_event, model?: string) => {
+    const id = isWhisperModel(model) ? model : DEFAULT_WHISPER_MODEL
+    return loadWhisper(id)
   })
 
-  // Whisper - transcribe audio
-  ipcMain.handle('whisper-transcribe', async (_event, audioBuffer: ArrayBuffer) => {
-    if (!whisperPipeline) {
+  // Whisper - transcribe audio in the given language ('auto' = detect)
+  ipcMain.handle('whisper-transcribe', async (_event, audioBuffer: ArrayBuffer, language?: string) => {
+    if (!whisperPipeline || !whisperModelId || whisperLoading) {
       return { success: false, error: 'Whisper not loaded' }
     }
 
-    try {
+    const pipe = whisperPipeline
+    const run = (async () => {
       const audioData = new Float32Array(audioBuffer)
-      if (audioData.length < 160) {
-        return { success: true, text: '' }
-      }
-
-      const result = await whisperPipeline(audioData, {
-        language: 'english',
-        task: 'transcribe',
-        chunk_length_s: 30,
-        stride_length_s: 5,
-      })
-
-      const text = Array.isArray(result)
+      if (audioData.length < 160) return ''
+      const result = await pipe(audioData, whisperGenerateOptions(whisperModelId!, language))
+      return Array.isArray(result)
         ? result.map((r: any) => r.text).join(' ').trim()
         : (result?.text || '').trim()
+    })()
+    whisperBusy = run
 
-      return { success: true, text }
+    try {
+      return { success: true, text: await run }
     } catch (err: any) {
       return { success: false, error: err.message }
+    } finally {
+      if (whisperBusy === run) whisperBusy = null
     }
   })
 
   // Whisper - get status
   ipcMain.handle('whisper-status', () => {
-    if (whisperPipeline) return { status: 'ready' }
-    if (whisperLoading) return { status: 'loading' }
+    if (whisperLoading) return { status: 'loading', model: whisperLoading.model }
+    if (whisperPipeline) return { status: 'ready', model: whisperModelId }
     if (whisperError) return { status: 'error', error: whisperError }
     return { status: 'idle' }
   })
@@ -847,16 +871,45 @@ function setupIPC() {
     return true
   })
 
-  // Save conversation to .txt file
+  // Settings persistence
+  ipcMain.handle('settings-load', () => {
+    try {
+      return { settings: getSettingsStore().get('settings', null) }
+    } catch (err: any) {
+      console.error('Failed to read settings:', err)
+      return { settings: null }
+    }
+  })
+
+  ipcMain.handle('settings-save', (_event, settings: unknown) => {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      return { success: false, error: 'Invalid settings' }
+    }
+    try {
+      getSettingsStore().set('settings', settings)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // Save conversation / transcript to .txt, or meeting notes to .md
   ipcMain.handle('save-conversation', async (_event, payload: {
     content: string
     suggestedName: string
+    format?: 'txt' | 'md'
   }) => {
     try {
+      const format = payload.format === 'md' ? 'md' : 'txt'
+      const name = payload.suggestedName.toLowerCase().endsWith(`.${format}`)
+        ? payload.suggestedName
+        : `${payload.suggestedName}.${format}`
       const { canceled, filePath: savePath } = await dialog.showSaveDialog({
-        title: 'Save conversation',
-        defaultPath: path.join(app.getPath('documents'), payload.suggestedName),
-        filters: [{ name: 'Text', extensions: ['txt'] }],
+        title: format === 'md' ? 'Save notes' : 'Save conversation',
+        defaultPath: path.join(app.getPath('documents'), name),
+        filters: format === 'md'
+          ? [{ name: 'Markdown', extensions: ['md'] }]
+          : [{ name: 'Text', extensions: ['txt'] }],
       })
 
       if (canceled || !savePath) return { success: false, canceled: true }

@@ -3,19 +3,20 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import { SettingsPanel } from '../components/Settings'
 import type { Settings, OllamaModel } from '../types'
+import { makeSettings } from './fixtures'
+import { BUILTIN_PRESETS } from '../lib/presets'
 
-const defaultSettings: Settings = {
+const defaultSettings: Settings = makeSettings({
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response.',
   opacity: 0.9,
   fontSize: 12,
-  language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 8192,
-}
+})
 
 const defaultModels: OllamaModel[] = [
   { name: 'gemma4:latest', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
@@ -85,15 +86,14 @@ describe('SettingsPanel', () => {
       expect(select).toBeInTheDocument()
     })
 
-    it('should show system prompt textarea', () => {
+    it('should show the active preset system prompt', () => {
       render(<SettingsPanel {...defaultProps} />)
-      expect(screen.getByText('System Prompt')).toBeInTheDocument()
-      expect(screen.getByDisplayValue('You are Ghost AI.')).toBeInTheDocument()
+      expect(screen.getByLabelText('System prompt')).toHaveValue('You are Ghost AI.')
     })
 
-    it('should show suggest reply prompt section', () => {
+    it('should show the active preset suggest reply prompt', () => {
       render(<SettingsPanel {...defaultProps} />)
-      expect(screen.getByText('Suggest Reply Prompt')).toBeInTheDocument()
+      expect(screen.getByLabelText('Suggest reply prompt')).toHaveValue(defaultSettings.presets[0].suggestReplyPrompt)
     })
 
     it('should show {{transcript}} documentation', () => {
@@ -182,11 +182,129 @@ describe('SettingsPanel', () => {
 
       fireEvent.click(screen.getByText('Save'))
 
-      expect(onUpdateSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          systemPrompt: 'New prompt',
-        })
-      )
+      const saved = onUpdateSettings.mock.calls[0][0]
+      expect(saved.presets.find((p: any) => p.id === 'general').systemPrompt).toBe('New prompt')
+    })
+  })
+
+  describe('presets', () => {
+    const saved = (fn: any) => fn.mock.calls.at(-1)[0] as Settings
+
+    it('should list the presets with the active one selected', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      const select = screen.getByLabelText('Active preset') as HTMLSelectElement
+      expect(select.value).toBe('general')
+      expect(Array.from(select.options).map(o => o.textContent)).toEqual([
+        'General (built-in)', 'Technical interview (built-in)', 'Sales call (built-in)', 'Lecture/Class (built-in)',
+      ])
+    })
+
+    it('should switch which preset is edited and active', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Active preset'), { target: { value: 'lecture' } })
+      expect(screen.getByLabelText('Name')).toHaveValue('Lecture/Class')
+      fireEvent.click(screen.getByText('Save'))
+      expect(saved(onUpdateSettings).activePresetId).toBe('lecture')
+    })
+
+    it('should not offer Delete for built-in presets, only Restore defaults', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      expect(screen.queryByText('Delete')).toBeNull()
+      expect(screen.getByText('Restore defaults')).toBeInTheDocument()
+    })
+
+    it('should restore an edited built-in preset', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed' } })
+      fireEvent.click(screen.getByText('Restore defaults'))
+      expect(screen.getByLabelText('Name')).toHaveValue('General')
+      expect(screen.getByLabelText('System prompt')).toHaveValue(BUILTIN_PRESETS[0].systemPrompt)
+    })
+
+    it('should create, rename and delete a user preset', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.click(screen.getByText('New'))
+      expect(screen.getByLabelText('Name')).toHaveValue('New preset')
+
+      fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Standup' } })
+      expect(screen.getByRole('option', { name: 'Standup' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('Delete'))
+      expect(screen.queryByRole('option', { name: 'Standup' })).toBeNull()
+      expect((screen.getByLabelText('Active preset') as HTMLSelectElement).value).toBe('general')
+
+      fireEvent.click(screen.getByText('Save'))
+      expect(saved(onUpdateSettings).presets).toHaveLength(BUILTIN_PRESETS.length)
+    })
+
+    it('should duplicate the active preset and save it as active', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Active preset'), { target: { value: 'sales-call' } })
+      fireEvent.click(screen.getByText('Duplicate'))
+      expect(screen.getByLabelText('Name')).toHaveValue('Sales call copy')
+
+      fireEvent.click(screen.getByText('Save'))
+      const s = saved(onUpdateSettings)
+      const copy = s.presets.find(p => p.id === s.activePresetId)!
+      expect(copy.name).toBe('Sales call copy')
+      expect(copy.quickActions).toEqual(BUILTIN_PRESETS[2].quickActions)
+    })
+
+    it('should edit, add and remove quick actions', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Quick action 1 label'), { target: { value: 'TL;DR' } })
+      fireEvent.click(screen.getAllByTitle('Remove quick action')[2]) // drop "Next steps"
+      fireEvent.click(screen.getByText('+ Add quick action'))
+      fireEvent.change(screen.getByLabelText('Quick action 3 prompt'), { target: { value: 'Any risks?' } })
+
+      fireEvent.click(screen.getByText('Save'))
+      expect(saved(onUpdateSettings).presets[0].quickActions).toEqual([
+        { label: 'TL;DR', prompt: 'Summarize the conversation so far in key points.' },
+        { label: 'Suggest reply', prompt: 'Based on the context, suggest what I should respond now.' },
+        { label: 'New action', prompt: 'Any risks?' },
+      ])
+    })
+
+    it('should discard preset edits when leaving without saving', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.click(screen.getByText('New'))
+      fireEvent.click(screen.getAllByRole('button')[0]) // back
+      expect(onUpdateSettings).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('whisper', () => {
+    it('should list the Whisper models with their download size', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      const select = screen.getByLabelText('Whisper model') as HTMLSelectElement
+      expect(select.value).toBe('onnx-community/whisper-base')
+      expect(screen.getByRole('option', { name: 'Base (multilingual) — ~290 MB' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'Small (English only) — ~970 MB' })).toBeInTheDocument()
+    })
+
+    it('should save the Whisper model and transcription language', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Whisper model'), { target: { value: 'onnx-community/whisper-small' } })
+      fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'portuguese' } })
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({
+        whisperModel: 'onnx-community/whisper-small',
+        transcriptionLanguage: 'portuguese',
+      }))
+    })
+
+    it('should explain that English-only models ignore the language', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      expect(screen.queryByText(/English-only model/)).toBeNull()
+      fireEvent.change(screen.getByLabelText('Whisper model'), { target: { value: 'onnx-community/whisper-base.en' } })
+      expect(screen.getByText(/English-only model/)).toBeInTheDocument()
     })
   })
 })

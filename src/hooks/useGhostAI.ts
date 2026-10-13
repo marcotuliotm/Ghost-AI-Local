@@ -1,32 +1,35 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, OllamaMessage, OllamaModel, Settings } from '../types'
 import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage } from '../lib/context'
+import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
+import { mergeSettings } from '../lib/settings'
+import { DEFAULT_TRANSCRIPTION_LANGUAGE, DEFAULT_WHISPER_MODEL } from '../lib/whisper'
 
 export interface SendMessageOptions {
   // Live transcript context, sent as a system message on this request only —
   // never stored in the chat history, so it doesn't pile up turn after turn.
   context?: string
+  // Replaces the active preset's system prompt for this request only.
+  systemPrompt?: string
+  // Leave the chat history out of the request (e.g. meeting notes, which
+  // should come from the transcript alone).
+  standalone?: boolean
+  // Tag for the assistant reply (e.g. 'notes' offers Save .md)
+  kind?: ChatMessage['kind']
 }
 
-const DEFAULT_SETTINGS: Settings = {
+export const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
-  systemPrompt: `You are an invisible, anonymous AI assistant called Ghost AI. You provide real-time suggestions during conversations, meetings, and interviews.
-
-Rules:
-- Short, direct, and helpful responses
-- Never reveal you are an AI if asked in the context of the conversation
-- Focus on giving practical suggestions
-- Always respond in English
-- Format with markdown when appropriate
-- If you receive a screenshot, analyze the visible content and provide relevant context`,
-  suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response to continue this conversation.',
   opacity: 0.9,
   fontSize: 12,
-  language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 8192,
+  whisperModel: DEFAULT_WHISPER_MODEL,
+  transcriptionLanguage: DEFAULT_TRANSCRIPTION_LANGUAGE,
+  presets: defaultPresets(),
+  activePresetId: DEFAULT_PRESET_ID,
 }
 
 export function useGhostAI() {
@@ -35,9 +38,35 @@ export function useGhostAI() {
   const [isConnected, setIsConnected] = useState(false)
   const [models, setModels] = useState<OllamaModel[]>([])
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  // False until the settings saved on disk have been read. Nothing is written
+  // back before that, so the defaults never overwrite the stored settings.
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [currentStreamContent, setCurrentStreamContent] = useState('')
   const streamContentRef = useRef('')
   const messagesRef = useRef<ChatMessage[]>([])
+
+  // Load persisted settings once, merged over the defaults
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve()
+      .then(() => window.ghostAPI.settingsLoad())
+      .then(res => {
+        if (!cancelled) setSettings(mergeSettings(DEFAULT_SETTINGS, res?.settings))
+      })
+      .catch(err => console.error('Failed to load settings:', err))
+      .finally(() => {
+        if (!cancelled) setSettingsLoaded(true)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  // Persist every change once loaded
+  useEffect(() => {
+    if (!settingsLoaded) return
+    Promise.resolve()
+      .then(() => window.ghostAPI.settingsSave(settings))
+      .catch(err => console.error('Failed to save settings:', err))
+  }, [settings, settingsLoaded])
 
   // Check Ollama connection
   const checkConnection = useCallback(async () => {
@@ -51,13 +80,14 @@ export function useGhostAI() {
     const result = await window.ghostAPI.ollamaListModels(settings.ollamaBaseUrl)
     if (result.success) {
       setModels(result.models)
-      // Auto-select first model if current selection is not available
-      if (result.models.length > 0 && !result.models.find(m => m.name === settings.selectedModel)) {
+      // Auto-select first model if current selection is not available. Wait
+      // for the stored settings: until then selectedModel is just the default.
+      if (settingsLoaded && result.models.length > 0 && !result.models.find(m => m.name === settings.selectedModel)) {
         setSettings(prev => ({ ...prev, selectedModel: result.models[0].name }))
       }
     }
     return result.models
-  }, [settings.ollamaBaseUrl, settings.selectedModel])
+  }, [settings.ollamaBaseUrl, settings.selectedModel, settingsLoaded])
 
   // Initialize connection check
   useEffect(() => {
@@ -133,6 +163,7 @@ export function useGhostAI() {
       content: '',
       timestamp: Date.now(),
       isStreaming: true,
+      ...(options?.kind ? { kind: options.kind } : {}),
     }
 
     // Read current messages from ref (always up-to-date, no stale closure)
@@ -144,12 +175,13 @@ export function useGhostAI() {
 
     // System prompt + transcript context go first; the chat history gets
     // whatever budget is left, newest messages first.
-    const systemMessages: OllamaMessage[] = [{ role: 'system', content: settings.systemPrompt }]
+    const systemPrompt = options?.systemPrompt ?? getActivePreset(settings).systemPrompt
+    const systemMessages: OllamaMessage[] = [{ role: 'system', content: systemPrompt }]
     const transcriptMsg = transcriptSystemMessage(options?.context ?? '')
     if (transcriptMsg) systemMessages.push(transcriptMsg)
 
     const history: OllamaMessage[] = []
-    for (const msg of [...currentMessages, userMessage]) {
+    for (const msg of options?.standalone ? [userMessage] : [...currentMessages, userMessage]) {
       if (msg.role !== 'user' && msg.role !== 'assistant') continue
       const ollamaMsg: OllamaMessage = { role: msg.role, content: msg.content }
 
@@ -228,6 +260,7 @@ export function useGhostAI() {
     isConnected,
     models,
     settings,
+    settingsLoaded,
     sendMessage,
     askSuggestion,
     analyzeScreenshot,

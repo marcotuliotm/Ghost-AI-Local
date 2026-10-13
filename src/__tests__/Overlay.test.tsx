@@ -2,17 +2,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { Overlay } from '../components/Overlay'
 import type { ChatMessage, Settings } from '../types'
+import { makeSettings } from './fixtures'
 
-const defaultSettings: Settings = {
+const defaultSettings: Settings = makeSettings({
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'The other person said: "{{transcript}}"\n\nSuggest a natural response.',
   opacity: 0.9,
-  language: 'pt-BR',
   transcriptionInterval: 10,
   contextLength: 8192,
-}
+})
 
 const defaultProps = {
   messages: [] as ChatMessage[],
@@ -238,6 +238,72 @@ describe('Overlay', () => {
       // Direct testing would require triggering AudioCapture's onTranscription
       // which requires more complex setup. We verify the settings are passed down.
       expect(screen.getByText('Ghost AI')).toBeInTheDocument()
+    })
+  })
+
+  describe('preset switcher', () => {
+    const withMessages = [
+      { id: '1', role: 'user' as const, content: 'Hello', timestamp: Date.now() },
+      { id: '2', role: 'assistant' as const, content: 'Hi', timestamp: Date.now() },
+    ]
+
+    it('should list the presets next to the model switcher and switch the active one', () => {
+      const updateSettings = vi.fn()
+      render(<Overlay {...defaultProps} updateSettings={updateSettings} />)
+
+      fireEvent.click(screen.getByTitle('Change preset (General)'))
+      const menu = screen.getByRole('menu', { name: 'Presets' })
+      expect(menu).toHaveTextContent('General')
+      expect(menu).toHaveTextContent('Technical interview')
+      expect(menu).toHaveTextContent('Sales call')
+      expect(menu).toHaveTextContent('Lecture/Class')
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Sales call' }))
+      expect(updateSettings).toHaveBeenCalledWith({ activePresetId: 'sales-call' })
+      expect(screen.queryByRole('menu', { name: 'Presets' })).not.toBeInTheDocument()
+    })
+
+    it('should close the preset menu when clicking outside', () => {
+      render(<Overlay {...defaultProps} />)
+      fireEvent.click(screen.getByTitle('Change preset (General)'))
+      expect(screen.getByRole('menu', { name: 'Presets' })).toBeInTheDocument()
+      fireEvent.mouseDown(document.body)
+      expect(screen.queryByRole('menu', { name: 'Presets' })).not.toBeInTheDocument()
+    })
+
+    it('should show the quick actions of the active preset', () => {
+      const sendMessage = vi.fn()
+      render(
+        <Overlay
+          {...defaultProps}
+          messages={withMessages}
+          sendMessage={sendMessage}
+          settings={{ ...defaultSettings, activePresetId: 'sales-call' }}
+        />
+      )
+      expect(screen.queryByText('Next steps')).toBeInTheDocument() // Sales call has its own Next steps
+      expect(screen.getByText('Handle objection')).toBeInTheDocument()
+      expect(screen.queryByText('Summarize')).toBeNull() // General-only (AudioCapture hidden without transcript)
+
+      fireEvent.click(screen.getByText('Handle objection'))
+      expect(sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('objection'),
+        undefined,
+        { context: '' }
+      )
+    })
+
+    it('should use edited quick actions and hide the bar when there are none', () => {
+      const custom = makeSettings({
+        presets: [{ id: 'general', name: 'General', systemPrompt: 's', suggestReplyPrompt: '{{transcript}}', quickActions: [{ label: 'Ping', prompt: 'Say pong' }] }],
+      })
+      const sendMessage = vi.fn()
+      const { rerender } = render(<Overlay {...defaultProps} messages={withMessages} sendMessage={sendMessage} settings={custom} />)
+      fireEvent.click(screen.getByText('Ping'))
+      expect(sendMessage).toHaveBeenCalledWith('Say pong', undefined, { context: '' })
+
+      rerender(<Overlay {...defaultProps} messages={withMessages} settings={{ ...custom, presets: [{ ...custom.presets[0], quickActions: [] }] }} />)
+      expect(screen.queryByText('Ping')).toBeNull()
     })
   })
 })

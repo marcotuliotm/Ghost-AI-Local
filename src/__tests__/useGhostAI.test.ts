@@ -1,6 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useGhostAI } from '../hooks/useGhostAI'
+import { getActivePreset } from '../lib/presets'
 
 describe('useGhostAI', () => {
   beforeEach(() => {
@@ -14,7 +15,7 @@ describe('useGhostAI', () => {
       expect(result.current.settings.selectedModel).toBe('gemma4:latest')
       expect(result.current.settings.opacity).toBe(0.9)
       expect(result.current.settings.transcriptionInterval).toBe(10)
-      expect(result.current.settings.suggestReplyPrompt).toContain('{{transcript}}')
+      expect(getActivePreset(result.current.settings).suggestReplyPrompt).toContain('{{transcript}}')
       expect(result.current.settings.contextLength).toBe(8192)
     })
 
@@ -344,7 +345,7 @@ describe('useGhostAI', () => {
       })
 
       const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
-      expect(sent[0]).toEqual(expect.objectContaining({ role: 'system', content: result.current.settings.systemPrompt }))
+      expect(sent[0]).toEqual(expect.objectContaining({ role: 'system', content: getActivePreset(result.current.settings).systemPrompt }))
       expect(sent[1].role).toBe('system')
       expect(sent[1].content).toContain('A: what is the budget?')
       expect(sent.at(-1)).toEqual({ role: 'user', content: 'What did they ask?' })
@@ -421,16 +422,14 @@ describe('useGhostAI', () => {
       expect(result.current.settings.transcriptionInterval).toBe(20)
     })
 
-    it('should update suggestReplyPrompt', () => {
+    it('should switch the active preset', () => {
       const { result } = renderHook(() => useGhostAI())
 
       act(() => {
-        result.current.updateSettings({
-          suggestReplyPrompt: 'Custom prompt: {{transcript}}',
-        })
+        result.current.updateSettings({ activePresetId: 'sales-call' })
       })
 
-      expect(result.current.settings.suggestReplyPrompt).toBe('Custom prompt: {{transcript}}')
+      expect(getActivePreset(result.current.settings).name).toBe('Sales call')
     })
   })
 
@@ -504,6 +503,96 @@ describe('useGhostAI', () => {
       const userMessage = payload.messages.find((m: any) => m.role === 'user')
 
       expect(userMessage.images).toEqual(['croppedBase64Data'])
+    })
+  })
+
+  describe('settings persistence', () => {
+    it('should load stored settings merged with the defaults', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({
+        settings: { opacity: 0.5, whisperModel: 'onnx-community/whisper-small', activePresetId: 'lecture' },
+      })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      expect(result.current.settings.opacity).toBe(0.5)
+      expect(result.current.settings.whisperModel).toBe('onnx-community/whisper-small')
+      expect(getActivePreset(result.current.settings).name).toBe('Lecture/Class')
+      // Missing from the stored object → default
+      expect(result.current.settings.contextLength).toBe(8192)
+    })
+
+    it('should not save anything before the stored settings are loaded', async () => {
+      let resolveLoad: (v: unknown) => void = () => {}
+      window.ghostAPI.settingsLoad = vi.fn().mockReturnValue(new Promise(r => { resolveLoad = r }))
+      const { result } = renderHook(() => useGhostAI())
+      act(() => result.current.updateSettings({ opacity: 0.4 }))
+      await new Promise(r => setTimeout(r, 20))
+      expect(window.ghostAPI.settingsSave).not.toHaveBeenCalled()
+
+      await act(async () => resolveLoad({ settings: { opacity: 0.7 } }))
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      expect(result.current.settings.opacity).toBe(0.7)
+    })
+
+    it('should save settings when they change', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      act(() => result.current.updateSettings({ activePresetId: 'sales-call' }))
+      await waitFor(() => {
+        expect(window.ghostAPI.settingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ activePresetId: 'sales-call' }))
+      })
+    })
+
+    it('should fall back to the defaults when loading fails', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockRejectedValue(new Error('disk error'))
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      expect(result.current.settings.selectedModel).toBe('gemma4:latest')
+      spy.mockRestore()
+    })
+  })
+
+  describe('presets and per-request options', () => {
+    it('should use the active preset system prompt', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      act(() => result.current.updateSettings({ activePresetId: 'technical-interview' }))
+
+      await act(async () => {
+        await result.current.sendMessage('Hello')
+      })
+
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
+      expect(sent[0].content).toContain('technical interview')
+    })
+
+    it('should support a one-off system prompt, no history and a tagged reply', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.sendMessage('Earlier question')
+      })
+      act(() => {
+        // Finish the first stream so the next send isn't ignored
+        const done = (window.ghostAPI.onStreamDone as any).mock.calls.at(-1)[0]
+        done('earlier answer')
+      })
+      await waitFor(() => expect(result.current.isStreaming).toBe(false))
+
+      await act(async () => {
+        await result.current.sendMessage('Write notes', undefined, {
+          context: 'A: hi', systemPrompt: 'NOTES RULES', standalone: true, kind: 'notes',
+        })
+      })
+
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[1][0].messages
+      expect(sent[0]).toEqual({ role: 'system', content: 'NOTES RULES' })
+      expect(sent.some((m: any) => m.content === 'Earlier question')).toBe(false)
+      expect(sent.at(-1)).toEqual({ role: 'user', content: 'Write notes' })
+      expect(result.current.messages.at(-1)?.kind).toBe('notes')
+      // The earlier exchange is still in the visible chat
+      expect(result.current.messages).toHaveLength(4)
     })
   })
 })

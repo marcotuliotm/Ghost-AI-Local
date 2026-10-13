@@ -3,11 +3,25 @@ import type { ChatMessage } from '../types'
 
 interface MessageBubbleProps {
   message: ChatMessage
+  // Shown on finished meeting-notes replies (kind 'notes')
+  onSaveNotes?: (markdown: string) => Promise<void> | void
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
+  const [savingNotes, setSavingNotes] = useState(false)
+
+  // The AI file name can take a moment; show progress and ignore repeat clicks
+  const handleSaveNotes = useCallback(async () => {
+    if (!onSaveNotes || savingNotes) return
+    setSavingNotes(true)
+    try {
+      await onSaveNotes(message.content)
+    } finally {
+      setSavingNotes(false)
+    }
+  }, [onSaveNotes, savingNotes, message.content])
 
   const handleCopy = useCallback(async () => {
     if (!message.content) return
@@ -53,11 +67,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             </span>
           )}
 
+          {/* Save meeting notes as Markdown */}
+          {message.kind === 'notes' && onSaveNotes && message.content && !message.isStreaming && (
+            <button
+              onClick={handleSaveNotes}
+              disabled={savingNotes}
+              className="ml-auto px-1.5 py-0.5 rounded text-[8px] font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-60 transition-colors"
+              title="Save notes to a .md file"
+            >
+              {savingNotes ? 'Saving...' : 'Save .md'}
+            </button>
+          )}
+
           {/* Copy button */}
           {message.content && !message.isStreaming && (
             <button
               onClick={handleCopy}
-              className="ml-auto p-0.5 rounded text-ghost-text-muted opacity-0 group-hover:opacity-100 hover:bg-ghost-fill-strong transition-all"
+              className={`${message.kind === 'notes' && onSaveNotes ? '' : 'ml-auto '}p-0.5 rounded text-ghost-text-muted opacity-0 group-hover:opacity-100 hover:bg-ghost-fill-strong transition-all`}
               title={copied ? 'Copied!' : 'Copy message'}
             >
               {copied ? (

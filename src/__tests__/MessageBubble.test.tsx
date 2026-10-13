@@ -116,4 +116,35 @@ describe('MessageBubble', () => {
       expect(timeElement).toBeInTheDocument()
     })
   })
+
+  describe('meeting notes', () => {
+    const notes = { id: 'n', role: 'assistant' as const, content: '## Summary\nDone.', timestamp: Date.now(), kind: 'notes' as const }
+
+    it('should offer Save .md on a finished notes reply', () => {
+      const onSaveNotes = vi.fn()
+      render(<MessageBubble message={notes} onSaveNotes={onSaveNotes} />)
+      fireEvent.click(screen.getByTitle('Save notes to a .md file'))
+      expect(onSaveNotes).toHaveBeenCalledWith('## Summary\nDone.')
+    })
+
+    it('should show progress and ignore repeat clicks while saving', async () => {
+      let finish: () => void = () => {}
+      const onSaveNotes = vi.fn().mockReturnValue(new Promise<void>(r => { finish = r }))
+      render(<MessageBubble message={notes} onSaveNotes={onSaveNotes} />)
+      fireEvent.click(screen.getByText('Save .md'))
+      expect(await screen.findByText('Saving...')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('Saving...'))
+      expect(onSaveNotes).toHaveBeenCalledTimes(1)
+      finish()
+      expect(await screen.findByText('Save .md')).toBeInTheDocument()
+    })
+
+    it('should not offer Save .md while streaming or on other replies', () => {
+      const onSaveNotes = vi.fn()
+      const { rerender } = render(<MessageBubble message={{ ...notes, isStreaming: true }} onSaveNotes={onSaveNotes} />)
+      expect(screen.queryByText('Save .md')).toBeNull()
+      rerender(<MessageBubble message={{ ...notes, kind: undefined }} onSaveNotes={onSaveNotes} />)
+      expect(screen.queryByText('Save .md')).toBeNull()
+    })
+  })
 })
