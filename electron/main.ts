@@ -51,6 +51,10 @@ const EMBED_MODEL = 'Xenova/wavlm-base-plus-sv'
 
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL
 
+// 16x16 PNG (black dot on transparent background) used for the tray icon.
+const TRAY_ICON_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWElEQVR4nGNgoBGQBeIMIO6H4gyoGFEApOE/DtxPSPM2PJpheBs5NhN0iSwJmmEYJUwyyDAgg1znY/UGxQZQ7AWKA5FUb+BMUBQlJGJcQjApwwBFmYkkAAB0qod5uswDxAAAAABJRU5ErkJggg=='
+
 function createWindow() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
 
@@ -119,8 +123,10 @@ function createWindow() {
 }
 
 function createTray() {
-  // Create a simple tray icon (16x16 transparent)
-  const icon = nativeImage.createEmpty()
+  // Small black dot, flagged as a template image so macOS tints it for the
+  // light/dark menu bar. An empty image would leave the tray item invisible.
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`)
+  icon.setTemplateImage(true)
   tray = new Tray(icon)
 
   const contextMenu = Menu.buildFromTemplate([
@@ -866,12 +872,19 @@ app.whenReady().then(() => {
   // Handle getDisplayMedia requests - capture system audio via loopback (macOS 13+ ScreenCaptureKit)
   // NOTE: On Electron 39+ this only works because the CoreAudio Tap feature is disabled at
   // startup (see `disable-features` at the top of this file), forcing the ScreenCaptureKit path.
+  // Always answer the request: if no source is available (or the lookup fails) an
+  // empty response rejects getDisplayMedia instead of leaving it pending forever.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      if (sources.length > 0) {
-        callback({ video: sources[0], audio: 'loopback' })
-      }
-    })
+    desktopCapturer
+      .getSources({ types: ['screen'] })
+      .then((sources) => {
+        if (sources.length > 0) {
+          callback({ video: sources[0], audio: 'loopback' })
+        } else {
+          callback({})
+        }
+      })
+      .catch(() => callback({}))
   })
 
   createWindow()

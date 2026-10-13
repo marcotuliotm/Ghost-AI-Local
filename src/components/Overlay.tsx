@@ -75,26 +75,6 @@ export function Overlay({
     return () => removeScreenshotListener()
   }, [sendMessage])
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.no-drag')) return
-    const startX = e.screenX
-    const startY = e.screenY
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = e.screenX - startX
-      const deltaY = e.screenY - startY
-      window.ghostAPI.moveWindow(deltaX, deltaY)
-    }
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [])
-
   // Save conversation to .txt file
   const handleSaveConversation = useCallback(async () => {
     if (messages.length === 0 || isSaving) return
@@ -169,7 +149,6 @@ export function Overlay({
       {/* Title Bar — pl clears the native macOS traffic-light buttons (top-left) */}
       <div
         className="drag-region flex items-center justify-between pl-[78px] pr-3 h-11 border-b border-ghost-border"
-        onMouseDown={handleDragStart}
       >
         <div className="flex items-center gap-2 min-w-0">
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-ghost-success' : 'bg-ghost-error'} animate-pulse-dot`} />
@@ -360,6 +339,9 @@ export function Overlay({
       <div className="px-3 py-1.5 border-t border-ghost-border no-drag">
           <AudioCapture
             onTranscription={(text) => {
+              // sendMessage ignores requests while a reply is streaming; tell
+              // AudioCapture so Auto mode retries this text on its next tick.
+              if (isStreaming) return false
               const prompt = (settings.suggestReplyPrompt || 'The other person said: "{{transcript}}"\n\nSuggest a short, natural response to continue this conversation.')
                 .replace('{{transcript}}', text)
               sendMessage(prompt)

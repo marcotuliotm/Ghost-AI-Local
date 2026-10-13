@@ -269,7 +269,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **148 tests** across 9 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **154 tests** across 9 test files under `src/__tests__/`.
 
 ### Running tests
 

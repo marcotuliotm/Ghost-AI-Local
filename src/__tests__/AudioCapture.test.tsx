@@ -86,6 +86,23 @@ describe('AudioCapture', () => {
     })
   })
 
+  describe('microphone permission', () => {
+    it('should show a permission error instead of capturing when mic access is denied', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready' })
+      window.ghostAPI.whisperLoad = vi.fn().mockResolvedValue({ status: 'ready' })
+      window.ghostAPI.requestMicPermission = vi.fn().mockResolvedValue({ granted: false })
+      const getUserMedia = vi.mocked(navigator.mediaDevices.getUserMedia)
+      getUserMedia.mockClear()
+
+      render(<AudioCapture {...defaultProps} />)
+      fireEvent.click(await screen.findByText('Mic'))
+      fireEvent.click(await screen.findByTitle(/Transcribe/))
+
+      expect(await screen.findByText(/Microphone permission denied/)).toBeInTheDocument()
+      expect(getUserMedia).not.toHaveBeenCalled()
+    })
+  })
+
   describe('rendering with whisper loading', () => {
     it('should show loading state when whisper is loading', () => {
       window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'loading' })
