@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, OllamaMessage, OllamaModel, Settings } from '../types'
+import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage } from '../lib/context'
+
+export interface SendMessageOptions {
+  // Live transcript context, sent as a system message on this request only —
+  // never stored in the chat history, so it doesn't pile up turn after turn.
+  context?: string
+}
 
 const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
@@ -19,6 +26,7 @@ Rules:
   language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
+  contextLength: 8192,
 }
 
 export function useGhostAI() {
@@ -107,7 +115,7 @@ export function useGhostAI() {
   }, [messages])
 
   // Send message
-  const sendMessage = useCallback(async (content: string, screenshot?: string) => {
+  const sendMessage = useCallback(async (content: string, screenshot?: string, options?: SendMessageOptions) => {
     if (!content.trim() && !screenshot) return
     if (isStreaming) return
 
@@ -134,39 +142,39 @@ export function useGhostAI() {
     streamContentRef.current = ''
     setCurrentStreamContent('')
 
-    // Build message history for context
-    const ollamaMessages: OllamaMessage[] = [
-      { role: 'system', content: settings.systemPrompt },
-    ]
+    // System prompt + transcript context go first; the chat history gets
+    // whatever budget is left, newest messages first.
+    const systemMessages: OllamaMessage[] = [{ role: 'system', content: settings.systemPrompt }]
+    const transcriptMsg = transcriptSystemMessage(options?.context ?? '')
+    if (transcriptMsg) systemMessages.push(transcriptMsg)
 
-    // Add recent message history (last 20 messages for context)
-    const recentMessages = [...currentMessages, userMessage].slice(-20)
-    for (const msg of recentMessages) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        const ollamaMsg: OllamaMessage = {
-          role: msg.role,
-          content: msg.content,
-        }
+    const history: OllamaMessage[] = []
+    for (const msg of [...currentMessages, userMessage]) {
+      if (msg.role !== 'user' && msg.role !== 'assistant') continue
+      const ollamaMsg: OllamaMessage = { role: msg.role, content: msg.content }
 
-        // Attach the screenshot only to the message currently being sent.
-        // Re-sending every historical screenshot on each turn quickly overflows
-        // the model's context (and the runner's memory), which makes Ollama's
-        // subprocess die mid-request and surface as "400: unexpected EOF" after
-        // a few chats. The prior "[Screenshot attached]" text plus the assistant's
-        // earlier analysis already preserve that context in the history.
-        if (msg === userMessage && msg.screenshot) {
-          ollamaMsg.images = [msg.screenshot.replace(/^data:image\/\w+;base64,/, '')]
-        }
-
-        ollamaMessages.push(ollamaMsg)
+      // Attach the screenshot only to the message currently being sent.
+      // Re-sending every historical screenshot on each turn quickly overflows
+      // the model's context (and the runner's memory), which makes Ollama's
+      // subprocess die mid-request and surface as "400: unexpected EOF" after
+      // a few chats. The prior "[Screenshot attached]" text plus the assistant's
+      // earlier analysis already preserve that context in the history.
+      if (msg === userMessage && msg.screenshot) {
+        ollamaMsg.images = [msg.screenshot.replace(/^data:image\/\w+;base64,/, '')]
       }
+      history.push(ollamaMsg)
     }
+
+    const systemTokens = systemMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
+    const historyBudget = promptBudget(settings.contextLength) - systemTokens
+    const ollamaMessages = [...systemMessages, ...fitHistoryToBudget(history, historyBudget)]
 
     // Use streaming
     const result = await window.ghostAPI.ollamaChatStream({
       model: settings.selectedModel,
       messages: ollamaMessages,
       baseUrl: settings.ollamaBaseUrl,
+      options: { num_ctx: settings.contextLength },
     })
 
     if (!result.success) {

@@ -15,6 +15,7 @@ describe('useGhostAI', () => {
       expect(result.current.settings.opacity).toBe(0.9)
       expect(result.current.settings.transcriptionInterval).toBe(10)
       expect(result.current.settings.suggestReplyPrompt).toContain('{{transcript}}')
+      expect(result.current.settings.contextLength).toBe(8192)
     })
 
     it('should start with empty messages', () => {
@@ -316,6 +317,59 @@ describe('useGhostAI', () => {
       expect(messages[0].role).toBe('system')
       // Should have system + first user + first assistant(error) + second user = 4
       expect(messages.length).toBeGreaterThan(2)
+    })
+  })
+
+  describe('context budget', () => {
+    it('should send num_ctx from settings.contextLength', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+      act(() => result.current.updateSettings({ contextLength: 16384 }))
+
+      await act(async () => {
+        await result.current.sendMessage('Hello')
+      })
+
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledWith(
+        expect.objectContaining({ options: { num_ctx: 16384 } })
+      )
+    })
+
+    it('should send transcript context as a system message without storing it in history', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+
+      await act(async () => {
+        await result.current.sendMessage('What did they ask?', undefined, { context: 'A: what is the budget?' })
+      })
+
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
+      expect(sent[0]).toEqual(expect.objectContaining({ role: 'system', content: result.current.settings.systemPrompt }))
+      expect(sent[1].role).toBe('system')
+      expect(sent[1].content).toContain('A: what is the budget?')
+      expect(sent.at(-1)).toEqual({ role: 'user', content: 'What did they ask?' })
+      // The chat history keeps only what the user typed
+      expect(result.current.messages[0].content).toBe('What did they ask?')
+    })
+
+    it('should drop the oldest history to fit the context window', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: false, error: 'x' })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.isConnected).toBe(true))
+      // 4096 window → ~3072-token prompt budget; each message below is ~1000 tokens
+      act(() => result.current.updateSettings({ contextLength: 4096 }))
+
+      for (const tag of ['first', 'second', 'third', 'fourth']) {
+        await act(async () => {
+          await result.current.sendMessage(`${tag} ${'x'.repeat(4000)}`)
+        })
+      }
+
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls.at(-1)[0].messages
+      const userContents = sent.filter((m: any) => m.role === 'user').map((m: any) => m.content.split(' ')[0])
+      expect(userContents).not.toContain('first')
+      expect(userContents.at(-1)).toBe('fourth')
+      expect(sent[0].role).toBe('system')
     })
   })
 

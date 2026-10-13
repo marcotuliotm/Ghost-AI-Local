@@ -11,6 +11,7 @@ const defaultSettings: Settings = {
   opacity: 0.9,
   language: 'pt-BR',
   transcriptionInterval: 10,
+  contextLength: 8192,
 }
 
 const defaultProps = {
@@ -129,7 +130,9 @@ describe('Overlay', () => {
       fireEvent.click(summarizeButtons[0])
 
       expect(sendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Summarize')
+        expect.stringContaining('Summarize'),
+        undefined,
+        { context: '' }
       )
     })
 
@@ -143,7 +146,9 @@ describe('Overlay', () => {
 
       fireEvent.click(screen.getByText('Next steps'))
       expect(sendMessage).toHaveBeenCalledWith(
-        expect.stringContaining('next steps')
+        expect.stringContaining('next steps'),
+        undefined,
+        { context: '' }
       )
     })
   })

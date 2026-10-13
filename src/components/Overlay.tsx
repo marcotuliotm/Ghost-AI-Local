@@ -3,6 +3,8 @@ import type { ChatMessage, OllamaModel, Settings } from '../types'
 import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { AudioCapture } from './AudioCapture'
+import { useTranscriptContext } from '../hooks/useTranscriptContext'
+import type { SendMessageOptions } from '../hooks/useGhostAI'
 
 interface OverlayProps {
   messages: ChatMessage[]
@@ -10,7 +12,7 @@ interface OverlayProps {
   isConnected: boolean
   models: OllamaModel[]
   settings: Settings
-  sendMessage: (content: string, screenshot?: string) => void
+  sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
   analyzeScreenshotCrop: () => void
@@ -40,6 +42,8 @@ export function Overlay({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
+  // Transcript context (running summary + recent verbatim), built per request
+  const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected)
 
   // Close the model menu when clicking outside
   useEffect(() => {
@@ -322,15 +326,15 @@ export function Overlay({
         <div className="px-3 py-1 flex gap-1 overflow-x-auto no-drag">
           <QuickAction
             label="Summarize"
-            onClick={() => sendMessage('Summarize the conversation so far in key points.')}
+            onClick={() => sendMessage('Summarize the conversation so far in key points.', undefined, { context: getTranscriptContext() })}
           />
           <QuickAction
             label="Suggest reply"
-            onClick={() => sendMessage('Based on the context, suggest what I should respond now.')}
+            onClick={() => sendMessage('Based on the context, suggest what I should respond now.', undefined, { context: getTranscriptContext() })}
           />
           <QuickAction
             label="Next steps"
-            onClick={() => sendMessage('What are the logical next steps?')}
+            onClick={() => sendMessage('What are the logical next steps?', undefined, { context: getTranscriptContext() })}
           />
         </div>
       )}
@@ -342,15 +346,17 @@ export function Overlay({
               // sendMessage ignores requests while a reply is streaming; tell
               // AudioCapture so Auto mode retries this text on its next tick.
               if (isStreaming) return false
+              // `text` is only the new/recent excerpt; the rest of the
+              // conversation rides along as transcript context.
               const prompt = (settings.suggestReplyPrompt || 'The other person said: "{{transcript}}"\n\nSuggest a short, natural response to continue this conversation.')
                 .replace('{{transcript}}', text)
-              sendMessage(prompt)
+              sendMessage(prompt, undefined, { context: getTranscriptContext() })
             }}
-            onSummarize={(text) => {
-              sendMessage(`Summarize the following conversation/audio transcription into clear bullet points with the key topics discussed:\n\n"${text}"`)
+            onSummarize={() => {
+              sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext() })
             }}
-            onSummarizePT={(text) => {
-              sendMessage(`Summarize the following conversation/audio transcription into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else:\n\n"${text}"`)
+            onSummarizePT={() => {
+              sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext() })
             }}
             onTranscriptChange={setCurrentTranscript}
             isConnected={isConnected}
@@ -362,13 +368,8 @@ export function Overlay({
       <ChatInput
         ref={inputRef}
         onSend={(content) => {
-          // If there's an active transcription, include it as context
-          if (currentTranscript.trim()) {
-            const contextMessage = `[Audio transcription context]\n"${currentTranscript.trim()}"\n\n[User question]\n${content}`
-            sendMessage(contextMessage)
-          } else {
-            sendMessage(content)
-          }
+          // Any live transcript goes along as context, not inside the message
+          sendMessage(content, undefined, { context: getTranscriptContext() })
         }}
         isStreaming={isStreaming}
         isConnected={isConnected}

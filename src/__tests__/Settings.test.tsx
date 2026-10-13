@@ -14,6 +14,7 @@ const defaultSettings: Settings = {
   language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
+  contextLength: 8192,
 }
 
 const defaultModels: OllamaModel[] = [
@@ -32,6 +33,16 @@ const defaultProps = {
 }
 
 describe('SettingsPanel', () => {
+  describe('context window', () => {
+    it('should save the selected context length', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByLabelText('Context window'), { target: { value: '16384' } })
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({ contextLength: 16384 }))
+    })
+  })
+
   describe('unsaved previews', () => {
     it('should restore the saved opacity when leaving without saving', () => {
       const onBack = vi.fn()
@@ -97,7 +108,7 @@ describe('SettingsPanel', () => {
 
     it('should show transcription interval', () => {
       render(<SettingsPanel {...defaultProps} />)
-      expect(screen.getByText(/Transcription interval: 10s/)).toBeInTheDocument()
+      expect(screen.getByText(/Max phrase length: 10s/)).toBeInTheDocument()
     })
 
     it('should show speaker separation slider', () => {

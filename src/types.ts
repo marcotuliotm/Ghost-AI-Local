@@ -5,12 +5,14 @@ export interface GhostAPI {
     model: string
     messages: OllamaMessage[]
     baseUrl: string
+    options?: OllamaOptions
   }) => Promise<{ success: boolean; message?: OllamaMessage; error?: string }>
 
   ollamaChatStream: (payload: {
     model: string
     messages: OllamaMessage[]
     baseUrl: string
+    options?: OllamaOptions
   }) => Promise<{ success: boolean; message?: OllamaMessage; error?: string }>
 
   ollamaListModels: (baseUrl: string) => Promise<{
@@ -71,6 +73,11 @@ export interface OllamaMessage {
   images?: string[]
 }
 
+// Subset of Ollama's per-request runtime options that Ghost AI sets.
+export interface OllamaOptions {
+  num_ctx?: number // context window in tokens; Ollama's own default is small (2048-4096)
+}
+
 export interface OllamaModel {
   name: string
   size: number
@@ -97,6 +104,7 @@ export interface Settings {
   language: string
   transcriptionInterval: number
   speakerThreshold: number // cosine-similarity threshold for speaker separation (0.5-0.95)
+  contextLength: number // Ollama num_ctx (tokens) — also the budget for history + transcript
 }
 
 declare global {

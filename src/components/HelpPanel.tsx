@@ -91,7 +91,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Settings"
-              description="Opens the settings panel (model, prompt, opacity, transcription interval)"
+              description="Opens the settings panel (model, context window, prompt, opacity, transcription interval)"
             />
             <ButtonRow
               icon={
@@ -145,7 +145,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}
               label="Auto"
-              description="When active, the accumulated transcription is automatically sent to Ollama at the configured interval for reply suggestions"
+              description="When active, what was said since the last send is automatically sent to Ollama at the configured interval for reply suggestions (the rest of the conversation goes along as context)"
             />
             <ButtonRow
               icon={
@@ -161,7 +161,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}
               label="Suggest reply"
-              description="Sends the transcription to Ollama to suggest a natural response for the conversation"
+              description="Asks Ollama to suggest a natural response to the most recent part of the conversation"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-purple-500/20 text-purple-400">Summarize</span>}
