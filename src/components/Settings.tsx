@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import type { Settings, OllamaModel } from '../types'
 
+const CONTEXT_LENGTH_OPTIONS = [4096, 8192, 16384, 32768]
+
 interface SettingsPanelProps {
   settings: Settings
   models: OllamaModel[]
@@ -118,6 +120,22 @@ export function SettingsPanel({
             <p className="text-[9px] text-ghost-text-muted opacity-60">
               Install models with: <code className="bg-ghost-fill-strong px-1 rounded">ollama pull llama3.2</code>
             </p>
+            <label htmlFor="context-length" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+              Context window
+            </label>
+            <select
+              id="context-length"
+              value={localSettings.contextLength}
+              onChange={e => setLocalSettings(prev => ({ ...prev, contextLength: parseInt(e.target.value) }))}
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none"
+            >
+              {CONTEXT_LENGTH_OPTIONS.map(n => (
+                <option key={n} value={n}>{n.toLocaleString('en-US')} tokens</option>
+              ))}
+            </select>
+            <p className="text-[9px] text-ghost-text-muted opacity-60">
+              Tokens the model sees per request (chat history + transcript). Larger = more memory and slower replies. Older transcript is summarized automatically to fit.
+            </p>
           </div>
         </Section>
 
@@ -193,7 +211,7 @@ export function SettingsPanel({
           <div className="space-y-3">
             <div>
               <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
-                Transcription interval: {localSettings.transcriptionInterval}s
+                Max phrase length: {localSettings.transcriptionInterval}s
               </label>
               <input
                 type="range"
@@ -208,7 +226,7 @@ export function SettingsPanel({
                 className="w-full accent-ghost-accent"
               />
               <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
-                Time between each Whisper audio processing (3s to 30s). Lower values = more responsive, but uses more CPU.
+                Maximum length of a transcribed phrase (3s to 30s). Speech is sent to Whisper at each natural pause, or after this long if nobody pauses. Applies to a recording already in progress.
               </p>
             </div>
             <div>

@@ -11,6 +11,7 @@ const defaultProps = {
     selectedModel: 'gemma4:latest',
     ollamaBaseUrl: 'http://localhost:11434',
     transcriptionInterval: 10,
+    contextLength: 8192,
     speakerThreshold: 0.85,
   },
 }
@@ -83,6 +84,84 @@ describe('AudioCapture', () => {
       await waitFor(() => {
         expect(window.ghostAPI.embedLoad).toHaveBeenCalled()
       })
+    })
+  })
+
+  describe('capture pipeline', () => {
+    const makeReady = () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready' })
+      window.ghostAPI.whisperLoad = vi.fn().mockResolvedValue({ status: 'ready' })
+    }
+
+    // 16 kHz context so the test needs no OfflineAudioContext resampling
+    const tone = (n: number) => Float32Array.from({ length: n }, (_, i) => 0.2 * Math.sin(i / 5))
+
+    it('should transcribe a phrase once a pause closes it (ScriptProcessor fallback)', async () => {
+      makeReady()
+      const processors: any[] = []
+      const Base = (globalThis as any).AudioContext
+      class Ctx16k extends Base {
+        sampleRate = 16000
+        createScriptProcessor() {
+          const p = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null as any }
+          processors.push(p)
+          return p
+        }
+      }
+      ;(globalThis as any).AudioContext = Ctx16k
+      try {
+        render(<AudioCapture {...defaultProps} />)
+        fireEvent.click(await screen.findByText('Mic'))
+        fireEvent.click(await screen.findByTitle(/Transcribe/))
+        await waitFor(() => expect(processors).toHaveLength(1))
+
+        const send = (data: Float32Array) =>
+          processors[0].onaudioprocess({ inputBuffer: { getChannelData: () => data } })
+        // 1 s of speech: still open, nothing transcribed yet
+        for (let i = 0; i < 4; i++) send(tone(4096))
+        expect(window.ghostAPI.whisperTranscribe).not.toHaveBeenCalled()
+        // ~1 s of silence closes the segment
+        for (let i = 0; i < 4; i++) send(new Float32Array(4096))
+
+        await waitFor(() => expect(window.ghostAPI.whisperTranscribe).toHaveBeenCalledTimes(1))
+        expect(await screen.findByText('transcribed text')).toBeInTheDocument()
+      } finally {
+        ;(globalThis as any).AudioContext = Base
+      }
+    })
+
+    it('should use an AudioWorklet when the context supports it', async () => {
+      makeReady()
+      const addModule = vi.fn().mockResolvedValue(undefined)
+      const workletNodes: any[] = []
+      const Base = (globalThis as any).AudioContext
+      class WorkletCtx extends Base {
+        audioWorklet = { addModule }
+      }
+      ;(globalThis as any).AudioContext = WorkletCtx
+      ;(globalThis as any).AudioWorkletNode = class {
+        port = { onmessage: null as any }
+        connect = vi.fn()
+        disconnect = vi.fn()
+        constructor(_ctx: unknown, public name: string) { workletNodes.push(this) }
+      }
+      const createObjectURL = vi.fn().mockReturnValue('blob:worklet')
+      const revokeObjectURL = vi.fn()
+      Object.assign(URL, { createObjectURL, revokeObjectURL })
+      try {
+        render(<AudioCapture {...defaultProps} />)
+        fireEvent.click(await screen.findByText('Mic'))
+        fireEvent.click(await screen.findByTitle(/Transcribe/))
+
+        await waitFor(() => expect(workletNodes).toHaveLength(1))
+        expect(addModule).toHaveBeenCalledWith('blob:worklet')
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:worklet')
+        expect(workletNodes[0].name).toBe('ghost-capture')
+        expect(typeof workletNodes[0].port.onmessage).toBe('function')
+      } finally {
+        ;(globalThis as any).AudioContext = Base
+        delete (globalThis as any).AudioWorkletNode
+      }
     })
   })
 

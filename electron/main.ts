@@ -384,6 +384,7 @@ function setupIPC() {
     model: string
     messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
+    options?: { num_ctx?: number }
   }) => {
     try {
       const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
@@ -393,6 +394,9 @@ function setupIPC() {
           model: payload.model,
           messages: payload.messages,
           stream: false,
+          // num_ctx: without it Ollama silently truncates long prompts to its
+          // small default window, dropping the system prompt / oldest context.
+          ...(payload.options ? { options: payload.options } : {}),
         }),
       })
 
@@ -417,6 +421,7 @@ function setupIPC() {
     model: string
     messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
+    options?: { num_ctx?: number }
   }) => {
     try {
       const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
@@ -426,6 +431,9 @@ function setupIPC() {
           model: payload.model,
           messages: payload.messages,
           stream: true,
+          // num_ctx: without it Ollama silently truncates long prompts to its
+          // small default window, dropping the system prompt / oldest context.
+          ...(payload.options ? { options: payload.options } : {}),
         }),
       })
 
@@ -875,16 +883,21 @@ app.whenReady().then(() => {
   // Always answer the request: if no source is available (or the lookup fails) an
   // empty response rejects getDisplayMedia instead of leaving it pending forever.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    // The callback is one-shot. Passing the error handler as then()'s second
+    // argument (not .catch) keeps a throw from callback() itself — e.g. no
+    // display to capture while the screen is locked — from calling it again.
     desktopCapturer
       .getSources({ types: ['screen'] })
-      .then((sources) => {
-        if (sources.length > 0) {
-          callback({ video: sources[0], audio: 'loopback' })
-        } else {
-          callback({})
-        }
-      })
-      .catch(() => callback({}))
+      .then(
+        (sources) => {
+          try {
+            callback(sources.length > 0 ? { video: sources[0], audio: 'loopback' } : {})
+          } catch (err) {
+            console.error('[display-media] Failed to grant capture:', err)
+          }
+        },
+        () => callback({}),
+      )
   })
 
   createWindow()

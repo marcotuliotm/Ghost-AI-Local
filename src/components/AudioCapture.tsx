@@ -1,11 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useWhisper } from '../hooks/useWhisper'
+import { SpeechSegmenter } from '../lib/segmenter'
+import { transcriptDelta, transcriptTail } from '../lib/context'
 
 interface AudioCaptureProps {
   // Return false to signal the text was not consumed (Auto mode will retry it).
   onTranscription: (text: string) => boolean | void
-  onSummarize: (text: string) => void
-  onSummarizePT: (text: string) => void
+  // The parent sends the transcript itself as context
+  onSummarize: () => void
+  onSummarizePT: () => void
   onTranscriptChange?: (text: string) => void
   isConnected: boolean
   settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number; speakerThreshold: number }
@@ -28,6 +31,77 @@ interface TranscriptSegment {
 // speakers below). Lower → speakers merge into one; higher → one person splits
 // into several. User-tunable via Settings (settings.speakerThreshold).
 const DEFAULT_SPEAKER_THRESHOLD = 0.85
+
+// Manual "Suggest reply" sends this much of the end of the transcript as the
+// excerpt to answer (the full conversation goes along as context).
+const SUGGEST_REPLY_TAIL_TOKENS = 300
+
+// Segments waiting for Whisper. If Whisper falls this far behind real time,
+// the oldest are dropped rather than letting latency grow without bound.
+const MAX_QUEUED_SEGMENTS = 30
+
+interface QueuedSegment {
+  channel: Channel
+  audio: Float32Array
+  sampleRate: number
+}
+
+// Capture processor run on the audio rendering thread. Batches 128-sample
+// render quanta into 2048-sample blocks before posting them to the main thread.
+const CAPTURE_WORKLET_SOURCE = `
+class GhostCaptureProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0 }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0]
+    if (ch) {
+      for (let i = 0; i < ch.length; i++) {
+        this.buf[this.n++] = ch[i]
+        if (this.n === this.buf.length) {
+          this.port.postMessage(this.buf, [this.buf.buffer])
+          this.buf = new Float32Array(2048)
+          this.n = 0
+        }
+      }
+    }
+    return true
+  }
+}
+registerProcessor('ghost-capture', GhostCaptureProcessor)
+`
+
+// Load the capture worklet into this context. Returns false when AudioWorklet
+// isn't available (or fails to load), in which case ScriptProcessor is used.
+async function loadCaptureWorklet(ctx: AudioContext): Promise<boolean> {
+  if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined') return false
+  const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }))
+  try {
+    await ctx.audioWorklet.addModule(url)
+    return true
+  } catch (err) {
+    console.warn('[AudioCapture] AudioWorklet failed to load, using ScriptProcessor:', err)
+    return false
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function createCaptureNode(ctx: AudioContext, useWorklet: boolean, onData: (samples: Float32Array) => void): AudioNode {
+  if (useWorklet) {
+    const node = new AudioWorkletNode(ctx, 'ghost-capture', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      channelCount: 1,
+      channelCountMode: 'explicit', // downmix stereo loopback to mono
+    })
+    node.port.onmessage = (e: MessageEvent<Float32Array>) => onData(e.data)
+    return node
+  }
+  // Fallback (and jsdom tests): deprecated main-thread ScriptProcessor
+  const processor = ctx.createScriptProcessor(4096, 1, 1)
+  processor.onaudioprocess = (e) => onData(new Float32Array(e.inputBuffer.getChannelData(0)))
+  return processor
+}
 
 // Known Whisper hallucination patterns when audio is silence/noise
 const HALLUCINATION_PATTERNS = [
@@ -113,7 +187,9 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
  * side). When "Speakers" is enabled, system-audio chunks are additionally
  * fingerprinted with a local speaker-embedding model and clustered into A/B/C.
  *
- * Flow: each channel → Raw PCM → Whisper (text) [+ embedding for system] → labeled transcript
+ * Flow: each channel → AudioWorklet PCM → VAD segmenter (closes on a pause or at
+ * the transcription interval) → serial queue → Whisper (text) [+ embedding for
+ * system] → labeled transcript
  */
 export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
@@ -123,7 +199,6 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   const [duration, setDuration] = useState(0)
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [isTranscribing, setIsTranscribing] = useState(false)
-  const isTranscribingRef = useRef(false)
   const [autoSend, setAutoSend] = useState(false)
   const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
@@ -150,14 +225,16 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
 
   const streamsRef = useRef<MediaStream[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
-  const processorsRef = useRef<ScriptProcessorNode[]>([])
+  const captureNodesRef = useRef<AudioNode[]>([])
   const animationFrameRef = useRef<number | null>(null)
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isListeningRef = useRef(false)
-  // Separate PCM buffers per channel so we can attribute speech to mic vs system
-  const micChunksRef = useRef<Float32Array[]>([])
-  const systemChunksRef = useRef<Float32Array[]>([])
-  const transcribeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // One VAD segmenter per channel so speech is attributed to mic vs system
+  const segmentersRef = useRef<Partial<Record<Channel, SpeechSegmenter>>>({})
+  // Closed segments waiting for Whisper, transcribed one at a time in order
+  const queueRef = useRef<QueuedSegment[]>([])
+  const drainPromiseRef = useRef<Promise<void> | null>(null)
+  const transcriptionIntervalRef = useRef(settings.transcriptionInterval || 10)
   const lastTranscriptRef = useRef('')
   const transcriptScrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
@@ -193,6 +270,14 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   useEffect(() => {
     speakerThresholdRef.current = settings.speakerThreshold ?? DEFAULT_SPEAKER_THRESHOLD
   }, [settings.speakerThreshold])
+
+  // Max segment length follows Settings live, including mid-recording
+  useEffect(() => {
+    transcriptionIntervalRef.current = settings.transcriptionInterval || 10
+    for (const seg of Object.values(segmentersRef.current)) {
+      seg?.setMaxSegmentSeconds(transcriptionIntervalRef.current)
+    }
+  }, [settings.transcriptionInterval])
 
   // Keep last transcript + notify parent when transcript changes
   useEffect(() => {
@@ -259,10 +344,13 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   // One Auto-send pass. The parent may decline (e.g. a reply is still streaming);
   // in that case keep the text pending so the next tick retries instead of
   // silently losing that part of the conversation.
+  // Only the part transcribed since the last send goes out; the parent sends
+  // the rest of the conversation as context.
   const autoSendTick = useCallback(() => {
     const text = lastTranscriptRef.current.trim()
-    if (!text || text === lastAutoSentRef.current) return
-    if (onTranscriptionRef.current(text) === false) return
+    const delta = transcriptDelta(text, lastAutoSentRef.current)
+    if (!delta) return
+    if (onTranscriptionRef.current(delta) === false) return
     lastAutoSentRef.current = text
   }, [])
 
@@ -293,10 +381,6 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
 
   const stopCapture = useCallback(() => {
     isListeningRef.current = false
-    if (transcribeIntervalRef.current) {
-      clearInterval(transcribeIntervalRef.current)
-      transcribeIntervalRef.current = null
-    }
     if (autoSendTimerRef.current) {
       clearInterval(autoSendTimerRef.current)
       autoSendTimerRef.current = null
@@ -309,10 +393,11 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
       clearInterval(durationIntervalRef.current)
       durationIntervalRef.current = null
     }
-    for (const p of processorsRef.current) {
-      try { p.disconnect() } catch {}
+    for (const node of captureNodesRef.current) {
+      try { node.disconnect() } catch {}
+      if ('port' in node) (node as AudioWorkletNode).port.onmessage = null
     }
-    processorsRef.current = []
+    captureNodesRef.current = []
     if (audioContextRef.current) {
       try { audioContextRef.current.close() } catch {}
       audioContextRef.current = null
@@ -364,26 +449,11 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     })
   }, [])
 
-  // Transcribe one channel's accumulated PCM and attribute it to a speaker.
-  const transcribeChannel = useCallback(async (chunksRef: React.MutableRefObject<Float32Array[]>, channel: Channel) => {
-    const chunks = chunksRef.current
-    if (chunks.length === 0) return
+  // Transcribe one closed speech segment and attribute it to a speaker.
+  const transcribeSegment = useCallback(async ({ channel, audio, sampleRate }: QueuedSegment) => {
+    if (!hasAudioEnergy(audio)) return
 
-    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0)
-    if (totalLength < 8000) return
-
-    const combined = new Float32Array(totalLength)
-    let offset = 0
-    for (const chunk of chunks) {
-      combined.set(chunk, offset)
-      offset += chunk.length
-    }
-    chunksRef.current = []
-
-    if (!hasAudioEnergy(combined)) return
-
-    const sampleRate = audioContextRef.current?.sampleRate || 48000
-    const resampled = await resampleTo16kHz(combined, sampleRate)
+    const resampled = await resampleTo16kHz(audio, sampleRate)
     const text = await transcribe(resampled)
     if (!text || text.length === 0 || isHallucination(text)) return
 
@@ -408,43 +478,75 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     appendSegment(speaker, text)
   }, [transcribe, assignSpeaker, appendSegment])
 
-  // Run a transcription pass over whichever channels have audio
-  const runTranscription = useCallback(async () => {
-    // Read the guard from a ref: the capture interval keeps the closure from when
-    // the graph was built, so state would always look `false` there and passes
-    // would pile up (and finish out of order) when Whisper is slower than the interval.
-    if (isTranscribingRef.current) return
-    if (micChunksRef.current.length === 0 && systemChunksRef.current.length === 0) return
-    isTranscribingRef.current = true
-    setIsTranscribing(true)
-    try {
-      // System first so its embedding call doesn't delay the (cheaper) mic text
-      await transcribeChannel(systemChunksRef, 'system')
-      await transcribeChannel(micChunksRef, 'mic')
-    } catch (err: any) {
-      console.error('Transcription error:', err)
-    } finally {
-      isTranscribingRef.current = false
-      setIsTranscribing(false)
+  // Transcribe queued segments one at a time, in the order they were spoken.
+  // Returns the running pass if there is one, so callers can await the backlog.
+  const drainQueue = useCallback((): Promise<void> => {
+    if (drainPromiseRef.current) return drainPromiseRef.current
+    if (queueRef.current.length === 0) return Promise.resolve()
+    const run = async () => {
+      setIsTranscribing(true)
+      try {
+        let item: QueuedSegment | undefined
+        while ((item = queueRef.current.shift())) {
+          try {
+            await transcribeSegment(item)
+          } catch (err) {
+            console.error('Transcription error:', err)
+          }
+        }
+      } finally {
+        setIsTranscribing(false)
+      }
     }
-  }, [transcribeChannel])
+    drainPromiseRef.current = run().finally(() => { drainPromiseRef.current = null })
+    return drainPromiseRef.current
+  }, [transcribeSegment])
 
-  // Wire a single stream into the audio graph, capturing its PCM into the
-  // channel-specific buffer and feeding the shared level-meter analyser.
-  const wireStream = useCallback((stream: MediaStream, channel: Channel, audioContext: AudioContext, analyser: AnalyserNode) => {
+  // Audio callbacks are created once per graph; read the latest drainQueue via a ref.
+  const drainQueueRef = useRef(drainQueue)
+  useEffect(() => {
+    drainQueueRef.current = drainQueue
+  }, [drainQueue])
+
+  const enqueueSegment = useCallback((segment: QueuedSegment) => {
+    const queue = queueRef.current
+    queue.push(segment)
+    if (queue.length > MAX_QUEUED_SEGMENTS) {
+      queue.shift()
+      console.warn('[AudioCapture] Whisper is falling behind; dropped the oldest queued segment')
+    }
+    void drainQueueRef.current()
+  }, [])
+
+  // Close any open segments (Stop / stream restart) and queue them.
+  const flushSegmenters = useCallback((sampleRate: number) => {
+    for (const channel of ['system', 'mic'] as Channel[]) {
+      const audio = segmentersRef.current[channel]?.flush()
+      if (audio) enqueueSegment({ channel, audio, sampleRate })
+    }
+    segmentersRef.current = {}
+  }, [enqueueSegment])
+
+  // Wire a single stream into the audio graph: its PCM goes through the
+  // channel's VAD segmenter, and it feeds the shared level-meter analyser.
+  const wireStream = useCallback((stream: MediaStream, channel: Channel, audioContext: AudioContext, analyser: AnalyserNode, useWorklet: boolean) => {
     const src = audioContext.createMediaStreamSource(stream)
     src.connect(analyser)
 
-    const processor = audioContext.createScriptProcessor(4096, 1, 1)
-    processor.onaudioprocess = (e) => {
+    const sampleRate = audioContext.sampleRate
+    const segmenter = new SpeechSegmenter({ sampleRate, maxSegmentSeconds: transcriptionIntervalRef.current })
+    segmentersRef.current[channel] = segmenter
+
+    const node = createCaptureNode(audioContext, useWorklet, (samples) => {
       if (!isListeningRef.current) return
-      const inputData = e.inputBuffer.getChannelData(0)
-      const buf = channel === 'mic' ? micChunksRef : systemChunksRef
-      buf.current.push(new Float32Array(inputData))
-    }
-    src.connect(processor)
-    processor.connect(audioContext.destination)
-    processorsRef.current.push(processor)
+      for (const audio of segmenter.push(samples)) {
+        enqueueSegment({ channel, audio, sampleRate })
+      }
+    })
+    src.connect(node)
+    // Connected to the destination so the graph keeps pulling it; its output is silence.
+    node.connect(audioContext.destination)
+    captureNodesRef.current.push(node)
 
     // Detect when macOS kills the audio stream (ScreenCaptureKit timeout ~20 min)
     for (const track of stream.getAudioTracks()) {
@@ -453,18 +555,22 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
         if (isListeningRef.current) setStreamDied(true)
       }
     }
-  }, [])
+  }, [enqueueSegment])
 
   // Build the full capture graph for the selected source (used by start + restart)
-  const buildGraph = useCallback((streams: { stream: MediaStream; channel: Channel }[]) => {
+  const buildGraph = useCallback(async (streams: { stream: MediaStream; channel: Channel }[]) => {
     const audioContext = new AudioContext()
     audioContextRef.current = audioContext
 
     const analyser = audioContext.createAnalyser()
     analyser.fftSize = 256
 
+    const useWorklet = await loadCaptureWorklet(audioContext)
+    // Stopped (or restarted) while the worklet was loading
+    if (audioContextRef.current !== audioContext) return
+
     for (const { stream, channel } of streams) {
-      wireStream(stream, channel, audioContext, analyser)
+      wireStream(stream, channel, audioContext, analyser, useWorklet)
     }
 
     // Level visualization
@@ -477,12 +583,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
       animationFrameRef.current = requestAnimationFrame(updateLevel)
     }
     updateLevel()
-
-    // Transcribe at configured interval
-    transcribeIntervalRef.current = setInterval(() => {
-      runTranscription()
-    }, (settings.transcriptionInterval || 10) * 1000)
-  }, [wireStream, runTranscription, settings.transcriptionInterval])
+  }, [wireStream])
 
   // Auto-restart when stream dies (macOS ScreenCaptureKit timeout ~20 min)
   useEffect(() => {
@@ -492,7 +593,10 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
       restartingRef.current = true
       console.log('[AudioCapture] Stream died, auto-restarting...')
 
+      const sampleRate = audioContextRef.current?.sampleRate || 48000
       stopCapture()
+      // Keep whatever was being said when the stream died
+      flushSegmenters(sampleRate)
       setStreamDied(false)
       setStatus('requesting')
       setErrorMsg('')
@@ -510,10 +614,8 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
         streamsRef.current = streams.map(s => s.stream)
         isListeningRef.current = true
         setStatus('listening')
-        micChunksRef.current = []
-        systemChunksRef.current = []
 
-        buildGraph(streams)
+        await buildGraph(streams)
 
         // Restart duration timer (continue from current duration, don't reset)
         durationIntervalRef.current = setInterval(() => {
@@ -536,7 +638,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     }
 
     restartCapture()
-  }, [streamDied, stopCapture, buildGraph, autoSendTick])
+  }, [streamDied, stopCapture, flushSegmenters, buildGraph, autoSendTick])
 
   // Keep autoSendInterval ref in sync and restart auto-send timer if active
   useEffect(() => {
@@ -610,10 +712,10 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
       setDuration(0)
       setSegments([])
       speakerCentroidsRef.current = []
-      micChunksRef.current = []
-      systemChunksRef.current = []
+      queueRef.current = []
+      segmentersRef.current = {}
 
-      buildGraph(streams)
+      await buildGraph(streams)
 
       durationIntervalRef.current = setInterval(() => {
         setDuration(d => d + 1)
@@ -635,28 +737,30 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   }, [whisperStatus, audioSource, buildGraph])
 
   const handleStop = useCallback(async () => {
+    const sampleRate = audioContextRef.current?.sampleRate || 48000
     stopCapture()
-    if (micChunksRef.current.length > 0 || systemChunksRef.current.length > 0) {
-      await runTranscription()
-    }
+    // Transcribe the phrase in progress plus anything still queued
+    flushSegmenters(sampleRate)
+    await drainQueue()
     setStatus('idle')
     setAudioLevel(0)
     setDuration(0)
-  }, [stopCapture, runTranscription])
+  }, [stopCapture, flushSegmenters, drainQueue])
 
+  // Manual Suggest reply answers the most recent part of the conversation
   const handleSendTranscript = useCallback(() => {
     if (!transcriptText.trim()) return
-    onTranscription(transcriptText.trim())
+    onTranscription(transcriptTail(transcriptText, SUGGEST_REPLY_TAIL_TOKENS))
   }, [transcriptText, onTranscription])
 
   const handleSummarizeTranscript = useCallback(() => {
     if (!transcriptText.trim()) return
-    onSummarize(transcriptText.trim())
+    onSummarize()
   }, [transcriptText, onSummarize])
 
   const handleSummarizePTTranscript = useCallback(() => {
     if (!transcriptText.trim()) return
-    onSummarizePT(transcriptText.trim())
+    onSummarizePT()
   }, [transcriptText, onSummarizePT])
 
   const handleClearTranscript = useCallback(() => {

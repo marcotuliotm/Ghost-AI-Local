@@ -18,12 +18,14 @@ const api = {
     model: string
     messages: OllamaMessage[]
     baseUrl: string
+    options?: { num_ctx?: number }
   }) => ipcRenderer.invoke('ollama-chat', payload),
 
   ollamaChatStream: (payload: {
     model: string
     messages: OllamaMessage[]
     baseUrl: string
+    options?: { num_ctx?: number }
   }) => ipcRenderer.invoke('ollama-chat-stream', payload),
 
   ollamaListModels: (baseUrl: string) =>

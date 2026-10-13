@@ -37,8 +37,12 @@ Ghost-AI-Local/
 │   │   ├── Settings.tsx      # Settings panel (model, system prompt, suggest-reply prompt, opacity, font size, interval)
 │   │   └── HelpPanel.tsx     # Help reference (shortcuts, buttons, descriptions)
 │   ├── hooks/
-│   │   ├── useGhostAI.ts     # Core hook: Ollama streaming, settings, connection check
+│   │   ├── useGhostAI.ts     # Core hook: Ollama streaming, settings, connection check, token-budgeted history
+│   │   ├── useTranscriptContext.ts # Progressive transcript summary → per-request context
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking
+│   ├── lib/
+│   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
+│   │   └── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
 │   └── styles/
 │       └── globals.css       # TailwindCSS + custom glass/animation styles
 ├── vite.config.mts           # Vite config with electron plugin, externals
@@ -83,7 +87,7 @@ npm run dist:win   # Build + package Windows NSIS
 ### Data Flow
 
 1. **Chat**: User input -> `useGhostAI.sendMessage()` -> IPC `ollama-chat-stream` -> main process `fetch()` to Ollama -> stream chunks back via `webContents.send('ollama-stream-chunk')` -> renderer updates message in real time
-2. **Audio**: Mic/System audio -> Web Audio API (per-channel PCM capture) -> resample to 16kHz -> IPC `whisper-transcribe` -> main process runs Whisper pipeline -> text returned. With "Speakers" on, system-audio chunks also go through IPC `embed-speaker` -> main process speaker-embedding model -> embedding clustered in the renderer into A/B/C. Result is displayed as labeled segments in the AudioCapture transcript area
+2. **Audio**: Mic/System audio -> Web Audio API (per-channel AudioWorklet PCM capture) -> `SpeechSegmenter` VAD (segment closes on a pause or at `transcriptionInterval`) -> serial queue -> resample to 16kHz -> IPC `whisper-transcribe` -> main process runs Whisper pipeline -> text returned. With "Speakers" on, system-audio chunks also go through IPC `embed-speaker` -> main process speaker-embedding model -> embedding clustered in the renderer into A/B/C. Result is displayed as labeled segments in the AudioCapture transcript area
 3. **Screenshot**: Global shortcut or button -> `desktopCapturer.getSources()` -> base64 dataURL -> sent to Ollama as context with analysis prompt
 
 ### IPC Channel Map
@@ -131,8 +135,9 @@ interface Settings {
   opacity: number              // window opacity 0-1 (default 0.9)
   fontSize: number             // UI font size in px (default 12)
   language: string             // default: 'pt-BR' (legacy, currently unused)
-  transcriptionInterval: number // seconds between transcriptions 3-30 (default 10)
+  transcriptionInterval: number // max speech-segment length in seconds 3-30 (default 10), live
   speakerThreshold: number     // cosine-similarity threshold for speaker separation 0.5-0.95 (default 0.85)
+  contextLength: number        // Ollama num_ctx sent with every chat request (default 8192)
 }
 
 interface ChatMessage {
@@ -153,6 +158,16 @@ interface ChatMessage {
 2. **Voice clustering (A/B/C)** — each system-audio chunk is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by cosine similarity (threshold = `settings.speakerThreshold`, read via `speakerThresholdRef`; dot product since vectors are normalized); new speakers get the next letter (A, B, C…).
 
 The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker chunks merge). A formatted string (`You: … / A: …`) is what gets passed to Ollama, saved, and used as chat context. If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per transcription chunk, so speakers that overlap within a chunk share a label; the **Speaker Separation** setting (`settings.speakerThreshold`, default 0.85, exposed as a Settings slider) is the accuracy knob — higher separates more speakers, lower merges similar voices, and it applies live to the next chunk.
+
+### Context management (num_ctx + token budget)
+Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context })` builds: system prompt → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`).
+
+The **live transcript is never embedded in user messages or stored in history**. `Overlay` passes it as `context` on each request (typed questions, quick actions, Suggest reply, Auto, Summarize, Summary PT). `useTranscriptContext` keeps it bounded: once the unsummarized transcript passes ~40% of the prompt budget, the older part is folded into a running summary in the background via `ollamaChat` (at most half the budget per pass; 30s backoff on failure) and only the recent ~15% stays verbatim. Clearing/restarting the transcript drops the summary. If summarization lags, the verbatim part is still capped (`transcriptTail`).
+
+Auto mode sends only the text added since its last send (`transcriptDelta`); the manual Suggest reply button sends the last ~300 tokens (`transcriptTail`). Both fill `{{transcript}}` in `suggestReplyPrompt` with that excerpt.
+
+### Audio capture: AudioWorklet + VAD segmenter
+Each channel's PCM is captured by an `AudioWorkletNode` (`ghost-capture`, inline module loaded from a Blob URL, 2048-sample batches posted to the main thread). When `audioContext.audioWorklet` is missing (jsdom tests) or fails to load, a `ScriptProcessorNode` is used instead. PCM goes through a per-channel `SpeechSegmenter` (`src/lib/segmenter.ts`): 20 ms frames, RMS vs an adaptive noise floor (starts at 0, falls fast in silence, rises slowly during speech), 200 ms pre-roll, segment closes after ~700 ms of silence or at `transcriptionInterval` (forced cuts happen at the quietest frame of the last second). Closed segments go into a serial queue (max 30, oldest dropped) transcribed one at a time in spoken order. Stop and stream auto-restart flush the open segment first. Changing the interval in Settings updates running segmenters.
 
 ### Whisper runs in main process
 The `@huggingface/transformers` library requires `fs` access for ONNX runtime. The renderer process (sandboxed) cannot access `fs`. All Whisper inference happens in the main process, with audio sent as `ArrayBuffer` over IPC.
@@ -250,7 +265,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 - **Speaker model (`wavlm-base-plus-sv`) downloads on first "Speakers" toggle** from HuggingFace, cached under `userData/whisper-models`. The model only runs in the main process; audio/embeddings never leave the machine. Tuning lives in the **Speaker Separation** Settings slider (`settings.speakerThreshold`): too low merges different speakers into one, too high splits one person into many.
 - **System audio on macOS requires Screen Recording permission** (not just microphone). The app uses `getDisplayMedia` with `audio: 'loopback'` via `setDisplayMediaRequestHandler`.
 - **macOS 13+ required** for system audio capture (ScreenCaptureKit).
-- **Silence detection threshold** is RMS 0.002 — audio below this is considered silence and skipped for transcription.
+- **Silence detection**: RMS 0.002 is the absolute floor for speech in the VAD segmenter (above an adaptive noise floor) and a final silence check before Whisper.
 - **Hallucination filtering** — Whisper may hallucinate on silent/noisy input. Common hallucinations like repeated phrases or phantom text are filtered out in `AudioCapture.tsx`.
 - **Window is always-on-top, floating level 1, visible on all workspaces** including fullscreen. This is intentional for overlay behavior.
 - **Do NOT add any analytics, telemetry, or external API calls.** The entire project philosophy is zero data leaving the machine.
@@ -269,7 +284,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **154 tests** across 9 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **211 tests** across 13 test files under `src/__tests__/`.
 
 ### Running tests
 
