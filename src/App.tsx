@@ -30,9 +30,11 @@ export default function App() {
     window.ghostAPI.setContentProtection(settings.hideFromScreenShare)
   }, [settings.hideFromScreenShare])
 
-  // First run: guided setup once the stored settings say it hasn't been done
+  // First run: guided setup once the stored settings say it hasn't been done.
+  // Only from the start screen — a late load must not pull the user out of a
+  // panel they already opened.
   useEffect(() => {
-    if (settingsLoaded && !settings.onboardingCompleted) setView('onboarding')
+    if (settingsLoaded && !settings.onboardingCompleted) setView(v => (v === 'overlay' ? 'onboarding' : v))
   }, [settingsLoaded, settings.onboardingCompleted])
 
   // The window shrinks to the compact card while that view is shown
