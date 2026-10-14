@@ -22,6 +22,7 @@ import { DEFAULT_WHISPER_MODEL, isWhisperModel, whisperGenerateOptions } from '.
 import {
   CLOUD_MODEL_ERROR,
   isCloudModel,
+  isEmbeddingModel,
   isLocalOllamaUrl,
   normalizeOllamaUrl,
   parseStreamLine,
@@ -37,6 +38,8 @@ import {
 } from '../src/lib/shortcuts'
 import { FULL_SCREENSHOT_MAX_EDGE, fitWithin, nativeCaptureSize } from '../src/lib/screenshot'
 import { compactBounds } from '../src/lib/compact'
+import { DocumentStore, type Embedder } from './documents'
+import { embeddingPrefix, findModel } from '../src/lib/rag'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
 // Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
@@ -476,6 +479,39 @@ const activeStreams = new Map<string, AbortController>()
 // Cloud models seen in the last /api/tags (proxied to ollama.com)
 let cloudModelNames = new Set<string>()
 
+// Local embedding models seen in the last /api/tags (documents retrieval)
+let embeddingModelNames: string[] = []
+
+let documentStore: DocumentStore | null = null
+function documents(): DocumentStore {
+  if (!documentStore) documentStore = new DocumentStore(path.join(app.getPath('userData'), 'documents'))
+  return documentStore
+}
+
+/**
+ * Embedder backed by the local Ollama `/api/embed`, or null (keyword search
+ * only) when the URL isn't local or the model isn't installed.
+ */
+function ollamaEmbedder(baseUrl: string, model: string): { embed: Embedder; model: string | null } {
+  const installed = findModel(embeddingModelNames.map(name => ({ name })), model)?.name
+  if (!installed || blockedOllamaRequest(baseUrl, installed)) return { embed: null, model: null }
+  const embed = async (texts: string[], kind: 'query' | 'document') => {
+    const prefix = embeddingPrefix(installed, kind)
+    const response = await ollamaFetch(`${normalizeOllamaUrl(baseUrl)}/api/embed`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: installed, input: texts.map(t => prefix + t) }),
+    })
+    if (!response.ok) throw new Error(await ollamaErrorMessage(response))
+    const data = await response.json()
+    if (!Array.isArray(data.embeddings) || data.embeddings.length !== texts.length) {
+      throw new Error('Unexpected embedding response')
+    }
+    return data.embeddings as number[][]
+  }
+  return { embed, model: installed }
+}
+
 // Every Ollama request must target a local server and a local model.
 function blockedOllamaRequest(baseUrl: unknown, model: unknown): string | null {
   if (!isLocalOllamaUrl(baseUrl)) return REMOTE_OLLAMA_ERROR
@@ -743,10 +779,57 @@ function setupIPC() {
       const data = await response.json()
       const all: any[] = Array.isArray(data.models) ? data.models : []
       cloudModelNames = new Set(all.filter(m => isCloudModel(m)).map(m => m.name))
-      return { connected: true, models: all.filter(m => !isCloudModel(m)) }
+      const local = all.filter(m => !isCloudModel(m))
+      embeddingModelNames = local.filter(m => isEmbeddingModel(m)).map(m => m.name)
+      return {
+        connected: true,
+        models: local.filter(m => !isEmbeddingModel(m)),
+        embeddingModels: embeddingModelNames,
+      }
     } catch {
       return { connected: false, models: [] }
     }
+  })
+
+  // --- Documents (local retrieval) ---
+  ipcMain.handle('docs-list', () => ({ docs: documents().list() }))
+
+  ipcMain.handle('docs-add', async (_event, opts: { baseUrl: string; embeddingModel: string }) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Add documents',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Documents', extensions: ['pdf', 'txt', 'md', 'markdown'] }],
+    })
+    if (canceled || filePaths.length === 0) return { added: [], errors: [], canceled: true }
+    const { embed, model } = ollamaEmbedder(opts.baseUrl, opts.embeddingModel)
+    return documents().add(filePaths, embed, model)
+  })
+
+  ipcMain.handle('docs-remove', (_event, id: string) => {
+    documents().remove(id)
+    return { docs: documents().list() }
+  })
+
+  ipcMain.handle('docs-set-enabled', (_event, id: string, enabled: boolean) => {
+    documents().setEnabled(id, Boolean(enabled))
+    return { docs: documents().list() }
+  })
+
+  // Embed documents added before an embedding model was installed
+  ipcMain.handle('docs-reindex', async (_event, opts: { baseUrl: string; embeddingModel: string }) => {
+    const { embed, model } = ollamaEmbedder(opts.baseUrl, opts.embeddingModel)
+    if (!embed || !model) return { reindexed: 0, error: 'Embedding model not installed' }
+    try {
+      return { reindexed: await documents().reindex(embed, model) }
+    } catch (err: any) {
+      return { reindexed: 0, error: err.message }
+    }
+  })
+
+  ipcMain.handle('docs-search', async (_event, opts: { query: string; baseUrl: string; embeddingModel: string; k?: number; maxTokens?: number }) => {
+    if (!documents().hasEnabled()) return { chunks: [] }
+    const { embed, model } = ollamaEmbedder(opts.baseUrl, opts.embeddingModel)
+    return { chunks: await documents().search(String(opts.query ?? ''), embed, model, opts.k, opts.maxTokens) }
   })
 
   // Screenshot capture

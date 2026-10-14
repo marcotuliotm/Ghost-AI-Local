@@ -51,6 +51,12 @@ export function isCloudModel(model: OllamaTagModel | string): boolean {
   return Boolean(model.remote_host || model.remote_model) || /[:-]cloud$/i.test(model.name)
 }
 
+// Embedding-only models (e.g. nomic-embed-text) can't chat: listed separately
+export function isEmbeddingModel(model: OllamaTagModel): boolean {
+  const caps = model.capabilities ?? []
+  return caps.includes('embedding') && !caps.includes('completion')
+}
+
 export function supportsThinking(model: OllamaTagModel | undefined): boolean {
   return Boolean(model?.capabilities?.includes('thinking'))
 }

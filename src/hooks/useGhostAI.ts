@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, OllamaMessage, OllamaModel, Settings, StreamResult } from '../types'
-import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage, type ContextUsage } from '../lib/context'
+import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage, transcriptTail, type ContextUsage } from '../lib/context'
+import { DEFAULT_EMBEDDING_MODEL, DOCUMENTS_SHARE, documentsSystemMessage, fitChunks, uniqueSources } from '../lib/rag'
 import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
 import { mergeSettings } from '../lib/settings'
 import { DEFAULT_TRANSCRIPTION_LANGUAGE, DEFAULT_WHISPER_MODEL } from '../lib/whisper'
@@ -35,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: { ...DEFAULT_SHORTCUTS },
   hideFromScreenShare: true,
   onboardingCompleted: false,
+  embeddingModel: DEFAULT_EMBEDDING_MODEL,
 }
 
 // Requests made while a reply is streaming wait here (screenshot shortcut,
@@ -64,6 +66,8 @@ export function useGhostAI() {
   // Why Ollama can't be used (e.g. a non-local URL); null when fine
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [models, setModels] = useState<OllamaModel[]>([])
+  // Local embedding models (for document retrieval), by name
+  const [embeddingModels, setEmbeddingModels] = useState<string[]>([])
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   // False until the settings saved on disk have been read. Nothing is written
   // back before that, so the defaults never overwrite the stored settings.
@@ -120,6 +124,7 @@ export function useGhostAI() {
     setConnectionError(result.error ?? null)
     if (result.connected) {
       setModels(result.models)
+      setEmbeddingModels(result.embeddingModels ?? [])
       // Auto-select first model if current selection is not available. Wait
       // for the stored settings: until then selectedModel is just the default.
       if (settingsLoaded && result.models.length > 0 && !result.models.find(m => m.name === settings.selectedModel)) {
@@ -194,6 +199,28 @@ export function useGhostAI() {
     const transcriptMsg = transcriptSystemMessage(options?.context ?? '')
     if (transcriptMsg) systemMessages.push(transcriptMsg)
 
+    // Excerpts from the user's documents relevant to this request (none when
+    // no document is enabled). Meeting notes (standalone) stick to the transcript.
+    const budget = promptBudget(current.contextLength)
+    let sources: string[] = []
+    if (!options?.standalone) {
+      try {
+        const query = [content, transcriptTail(options?.context ?? '', 150)].filter(Boolean).join('\n')
+        const maxTokens = Math.floor(budget * DOCUMENTS_SHARE)
+        const { chunks } = await window.ghostAPI.docsSearch({
+          query, baseUrl: current.ollamaBaseUrl, embeddingModel: current.embeddingModel, maxTokens,
+        })
+        const fitted = fitChunks(chunks ?? [], maxTokens)
+        if (fitted.length > 0) {
+          systemMessages.push({ role: 'system', content: documentsSystemMessage(fitted) })
+          sources = uniqueSources(fitted)
+          updateMessage(assistantMessage.id, { sources })
+        }
+      } catch (err) {
+        console.warn('Document search failed:', err)
+      }
+    }
+
     const history: OllamaMessage[] = []
     for (const msg of options?.standalone ? [userMessage] : [...currentMessages, userMessage]) {
       if (msg.role !== 'user' && msg.role !== 'assistant') continue
@@ -212,7 +239,6 @@ export function useGhostAI() {
     }
 
     const systemTokens = systemMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
-    const budget = promptBudget(current.contextLength)
     const fittedHistory = fitHistoryToBudget(history, budget - systemTokens)
     const ollamaMessages = [...systemMessages, ...fittedHistory]
     setContextUsage({
@@ -325,6 +351,7 @@ export function useGhostAI() {
     isConnected,
     connectionError,
     models,
+    embeddingModels,
     settings,
     settingsLoaded,
     shortcutErrors,

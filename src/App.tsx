@@ -4,10 +4,11 @@ import { SettingsPanel } from './components/Settings'
 import { HelpPanel } from './components/HelpPanel'
 import { CompactView } from './components/CompactView'
 import { Onboarding } from './components/Onboarding'
+import { DocumentsPanel } from './components/DocumentsPanel'
 import { useGhostAI } from './hooks/useGhostAI'
 import { formatAccelerator, isMacPlatform } from './lib/shortcuts'
 
-type View = 'overlay' | 'settings' | 'help' | 'compact' | 'onboarding'
+type View = 'overlay' | 'settings' | 'help' | 'compact' | 'onboarding' | 'documents'
 
 export default function App() {
   const [view, setView] = useState<View>('overlay')
@@ -29,9 +30,11 @@ export default function App() {
     window.ghostAPI.setContentProtection(settings.hideFromScreenShare)
   }, [settings.hideFromScreenShare])
 
-  // First run: guided setup once the stored settings say it hasn't been done
+  // First run: guided setup once the stored settings say it hasn't been done.
+  // Only from the start screen — a late load must not pull the user out of a
+  // panel they already opened.
   useEffect(() => {
-    if (settingsLoaded && !settings.onboardingCompleted) setView('onboarding')
+    if (settingsLoaded && !settings.onboardingCompleted) setView(v => (v === 'overlay' ? 'onboarding' : v))
   }, [settingsLoaded, settings.onboardingCompleted])
 
   // The window shrinks to the compact card while that view is shown
@@ -68,6 +71,7 @@ export default function App() {
           onOpenSettings={() => setView('settings')}
           onOpenHelp={() => setView('help')}
           onCompact={toggleCompact}
+          onOpenDocuments={() => setView('documents')}
         />
       </div>
       {view === 'compact' && (
@@ -87,6 +91,15 @@ export default function App() {
           updateSettings={updateSettings}
           checkConnection={ghostAI.checkConnection}
           onDone={finishOnboarding}
+        />
+      )}
+      {view === 'documents' && (
+        <DocumentsPanel
+          settings={settings}
+          embeddingModels={ghostAI.embeddingModels}
+          isConnected={ghostAI.isConnected}
+          updateSettings={updateSettings}
+          onBack={() => setView('overlay')}
         />
       )}
       {view === 'settings' && (

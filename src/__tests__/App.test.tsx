@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import App from '../App'
 
 // App uses useGhostAI which calls window.ghostAPI methods on mount.
@@ -16,6 +16,16 @@ describe('App', () => {
   })
 
   describe('routing', () => {
+    // An existing user, so the first-run setup doesn't open; tests wait for
+    // the settings load before clicking (a slower CI machine finishes it later).
+    beforeEach(() => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+    })
+    const renderLoaded = async () => {
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+    }
+
     it('should render overlay by default', async () => {
       render(<App />)
       await waitFor(() => {
@@ -31,7 +41,7 @@ describe('App', () => {
     })
 
     it('should navigate to help and back', async () => {
-      render(<App />)
+      await renderLoaded()
       await waitFor(() => {
         expect(screen.getByText('Ghost AI')).toBeInTheDocument()
       })
@@ -58,7 +68,7 @@ describe('App', () => {
     })
 
     it('should navigate to settings and back', async () => {
-      render(<App />)
+      await renderLoaded()
       await waitFor(() => {
         expect(screen.getByText('Ghost AI')).toBeInTheDocument()
       })
@@ -111,6 +121,19 @@ describe('App', () => {
   })
 
   describe('first-run setup', () => {
+    it('should not pull the user out of a panel when the settings load late', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve({ settings: null }), 50)),
+      )
+      render(<App />)
+      fireEvent.click(screen.getByTitle('Help - Shortcuts & buttons'))
+      expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
+      await waitFor(() => expect(window.ghostAPI.settingsLoad).toHaveBeenCalled())
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(screen.getByText('Keyboard Shortcuts')).toBeInTheDocument()
+      expect(screen.queryByText('Welcome to Ghost AI')).toBeNull()
+    })
+
     it('should open the setup for a new user and remember when it is done', async () => {
       window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: null })
       render(<App />)
@@ -163,6 +186,18 @@ describe('App', () => {
       expect(screen.getByTestId('compact-view')).toBeInTheDocument()
       act(() => toggle())
       expect(screen.queryByTestId('compact-view')).toBeNull()
+    })
+  })
+
+  describe('documents', () => {
+    it('should open the documents panel from the title bar', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      fireEvent.click(screen.getByTitle('Documents'))
+      expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
+      fireEvent.click(screen.getByTitle('Back'))
+      expect(screen.queryByText('No documents yet.')).toBeNull()
     })
   })
 })

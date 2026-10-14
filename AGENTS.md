@@ -25,15 +25,17 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 Ghost-AI-Local/
 ├── electron/
 │   ├── main.ts          # Main process: window, tray, shortcuts, IPC, Whisper, settings store
+│   ├── documents.ts     # DocumentStore: read/extract (PDF via unpdf), chunk, embed, index on disk, search
 │   └── preload.ts       # contextBridge exposing ghostAPI to renderer
 ├── src/
-│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding)
+│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding | documents)
 │   ├── main.tsx          # React entry point
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
 │   │   ├── AudioCapture.tsx  # Audio UI: source/Speakers/Questions/Auto controls, transcript (renamable speakers), action buttons; wires the audio hooks
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
+│   │   ├── DocumentsPanel.tsx # Documents for retrieval: add / on-off / remove, semantic-search status
 │   │   ├── CompactView.tsx   # Compact mode card: latest suggestion, click-through, drag/expand toolbar
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
@@ -61,6 +63,7 @@ Ghost-AI-Local/
 │   │   ├── onboarding.ts     # Setup steps (required vs optional) from Ollama/permission/Whisper state
 │   │   ├── ollama.ts         # Local-URL check, cloud-model detection, stream-line parsing (also used by electron/main.ts)
 │   │   ├── presets.ts        # Built-in prompt presets, CRUD, merge/validation, {{transcript}} filling
+│   │   ├── rag.ts            # Retrieval: chunking, BM25 + embedding hybrid ranking, budget fitting, prompt (also used by electron/)
 │   │   ├── questions.ts      # isQuestion heuristic (EN/PT/ES) for Questions mode
 │   │   ├── screenshot.ts     # Native (Retina) capture size, downscale for full screenshots
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
@@ -125,7 +128,12 @@ npm run dist:win   # Build + package Windows NSIS
 | `ollama-chat` | renderer->main | invoke | Non-streaming Ollama chat; optional `think: false` turns off reasoning on thinking models (AI file names, background summary) |
 | `ollama-chat-stream` | renderer->main | invoke | Streaming chat `{ requestId, ..., think? }`; resolves `{ success, content, thinking, aborted?, error? }` when the stream ends |
 | `ollama-abort` | renderer->main | invoke | Stop the streaming request with that `requestId` (Stop button / Esc) |
-| `ollama-status` | renderer->main | invoke | Connection + local models from one `/api/tags` (3s timeout, polled every 10s); cloud models filtered out, `error` for a non-local URL |
+| `ollama-status` | renderer->main | invoke | Connection + local chat models from one `/api/tags` (3s timeout, polled every 10s); cloud models filtered out, embedding-only models returned separately as `embeddingModels`, `error` for a non-local URL |
+| `docs-list` | renderer->main | invoke | The user's documents (metadata) |
+| `docs-add` | renderer->main | invoke | File picker (.pdf/.txt/.md) → extract, chunk, embed when an embedding model is installed; returns `{ added, errors }` |
+| `docs-remove` / `docs-set-enabled` | renderer->main | invoke | Remove a document / turn it on or off for retrieval |
+| `docs-reindex` | renderer->main | invoke | Embed documents indexed before the embedding model was installed |
+| `docs-search` | renderer->main | invoke | Top excerpts of the enabled documents for a query (hybrid ranking) |
 | `capture-screenshot` | renderer->main | invoke | desktopCapturer screenshot |
 | `whisper-load` | renderer->main | invoke | Load Whisper model `(modelId)`; a different id disposes the loaded pipeline and loads the new one (serialized) |
 | `whisper-transcribe` | renderer->main | invoke | Transcribe Float32Array audio `(buffer, language)`; `'auto'` = detect |
@@ -179,6 +187,7 @@ interface Settings {
   shortcuts: Shortcuts         // { toggleOverlay, screenshot, cropScreenshot, focusInput, compactMode } as Electron accelerators
   hideFromScreenShare: boolean // default true: setContentProtection on the overlay
   onboardingCompleted: boolean // first-run setup done/skipped; true for anyone with older saved settings
+  embeddingModel: string       // Ollama embedding model for documents (default 'nomic-embed-text'; keyword search when not installed)
 }
 
 interface Preset {
@@ -199,6 +208,7 @@ interface ChatMessage {
   thinking?: string            // the model's reasoning (thinking models), shown collapsible
   stopped?: boolean            // generation stopped by the user (partial reply kept)
   kind?: 'notes'               // meeting-notes reply (bubble offers Save .md)
+  sources?: string[]           // documents whose excerpts went with the request ("From: …" under the reply)
 }
 ```
 
@@ -238,6 +248,11 @@ Every streaming request gets a `requestId` (`useGhostAI.startRequest`). The main
 ### Markdown replies
 Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm` + `rehype-highlight`; styles in `globals.css` under `.response-content`). For the zero-network rule nothing in a reply may load or navigate: raw HTML stays disabled (react-markdown default — do not add `rehype-raw`), links render as text with the URL as a tooltip, and images become `[image: alt]`. Code blocks get a copy button. User messages stay plain text.
 
+### Documents (local retrieval)
+The user adds files in the Documents panel (title-bar paperclip). `electron/documents.ts` (`DocumentStore`) reads them in the main process — PDF text via `unpdf` (pdf.js without workers or network; externalized in `vite.config.mts`), .txt/.md as UTF-8; ≤15 MB, scanned PDFs without text are rejected — splits them with `chunkText` (`src/lib/rag.ts`: ~600-char excerpts; Markdown headings are hard boundaries and each excerpt is prefixed with its section title, so an excerpt — and its embedding — stays on one topic; mixed-topic excerpts made semantic scores indistinguishable in testing) and saves `userData/documents/index.json` (written atomically). When the `settings.embeddingModel` (default `nomic-embed-text`) is installed in the local Ollama, chunks are embedded through `/api/embed` (same local-URL/no-cloud checks as chat), with the model's task prefixes (`embeddingPrefix`: `search_document:` / `search_query:` for nomic-embed-text, the query instruction for mxbai-embed-large); otherwise documents are keyword-only and the panel shows the `ollama pull` command, plus "Index existing documents" once a model appears. Embedding-only models are listed separately by `ollama-status`, so they never show up as chat models.
+
+On every non-standalone request `useGhostAI` calls `docs-search` with the message plus the recent transcript tail and the documents' token share. **When all enabled documents fit in that share** (a CV plus a job description, typically) they are sent in full, in document order — a conversational question ("why are you a good fit?") often shares no words with a CV, so ranking would drop exactly what's needed. Otherwise excerpts are ranked (`rankChunks`), hybrid: BM25 over stopword-filtered, accent-free, plural-stripped tokens always; blended 70/30 with cosine similarity when the query and the document were embedded with the same model; near-duplicates of a better-ranked excerpt (word overlap ≥ 85%) are skipped so repeated text can't crowd out the rest. The top excerpts that fit `DOCUMENTS_SHARE` (25%) of the prompt budget go in as a system message (labeled by file name, "don't invent beyond them") before the chat history is fitted, and the reply records `sources`. Meeting notes (standalone) skip documents. A failed search never blocks the reply. Documents can be turned off without being removed.
+
 ### Compact mode
 A small card (`CompactView`, 360×160) showing only the latest assistant reply (Markdown, following a streaming reply; the reasoning tail while thinking). `App` switches to the `compact` view from the title-bar button, the `compactMode` shortcut (`toggle-compact` from main) or the tray; an effect calls `set-compact-mode`, which saves the window bounds and applies `compactBounds` (top-right corner of the window, clamped to that display's work area) and hides the macOS traffic lights (they'd cover the card's toolbar, and the red one would quit mid-call), restoring both on exit. The card is click-through: it calls `setIgnoreMouse(true)` (forwarded, so mouse movement still reaches the page) and its toolbar (drag handle + expand) switches the mouse back on while hovered. The Overlay stays mounted underneath, so recording, Auto and Questions keep running.
 
@@ -268,7 +283,7 @@ In the renderer, `useWhisper(model, language)` reports `needsReload` when the lo
 Node.js `undici` fetch fails on HuggingFace's 302 redirect chain inside Electron's main process. Before loading the transformers library, we override `globalThis.fetch = net.fetch` (Electron's Chromium network stack), then restore it after the model is loaded.
 
 ### Externalized dependencies in Vite
-`@huggingface/transformers` and `onnxruntime-node` are externalized from Vite's bundling (in `vite.config.mts` rollupOptions.external). They are loaded via dynamic `import()` from `node_modules` at runtime. This avoids bundling issues with native modules and large WASM/ONNX files.
+`@huggingface/transformers`, `onnxruntime-node` and `unpdf` are externalized from Vite's bundling (in `vite.config.mts` rollupOptions.external). They are loaded via dynamic `import()` from `node_modules` at runtime. This avoids bundling issues with native modules and large WASM/ONNX files.
 
 ### Output format is CJS
 Both `electron/main.ts` and `electron/preload.ts` are built as CommonJS (`format: 'cjs'`) because Electron's main process expects CJS by default.
@@ -390,7 +405,7 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **440 tests** across 35 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **477 tests** across 38 test files under `src/__tests__/`.
 
 ### Running tests
 
@@ -417,6 +432,7 @@ npm run test:watch   # Watch mode
 - The renderer runs under a CSP with `connect-src 'none'` in production (see "Content-Security-Policy")
 - The overlay is hidden from screen sharing by default (`setContentProtection`)
 - Settings (incl. prompts) are stored only locally in `userData/settings.json`; `whisper-load` only accepts model ids from `WHISPER_MODELS`
+- Documents and their index stay in `userData/documents/`; embeddings come only from the local Ollama
 - **Ollama must be local**: `isLocalOllamaUrl` (`src/lib/ollama.ts`) accepts only `localhost`/`*.localhost`, `127.0.0.0/8` and `::1` over http(s). The main process checks it on every Ollama request (`blockedOllamaRequest`), Settings won't save another URL, and `mergeSettings` resets a stored one. **Cloud models** (`remote_host` in `/api/tags`, or a `-cloud`/`:cloud` name) are proxied by the local Ollama to ollama.com, so they are hidden from the model list and refused by the main process
 - Permission handler restricted to media/microphone/screen only
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false` (sandbox disabled only because Whisper needs main-process Node access)

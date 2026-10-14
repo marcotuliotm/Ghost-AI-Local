@@ -128,6 +128,11 @@ export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
             {message.stopped && (
               <span className="block text-[9px] text-ghost-text-muted italic mt-1">Stopped</span>
             )}
+            {message.sources && message.sources.length > 0 && (
+              <span className="block text-[9px] text-ghost-text-muted mt-1" title="Excerpts from these documents were sent with the request">
+                From: {message.sources.join(', ')}
+              </span>
+            )}
           </div>
         )}
       </div>
