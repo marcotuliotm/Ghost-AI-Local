@@ -26,6 +26,15 @@ import {
   parseStreamLine,
   REMOTE_OLLAMA_ERROR,
 } from '../src/lib/ollama'
+import {
+  DEFAULT_SHORTCUTS,
+  formatAccelerator,
+  isValidAccelerator,
+  SHORTCUT_ACTIONS,
+  type ShortcutAction,
+  type Shortcuts,
+} from '../src/lib/shortcuts'
+import { FULL_SCREENSHOT_MAX_EDGE, fitWithin, nativeCaptureSize } from '../src/lib/screenshot'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
 // Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
@@ -117,6 +126,10 @@ function createWindow() {
   // Make window non-interactive in specific areas (click-through)
   mainWindow.setIgnoreMouseEvents(false)
 
+  // Hidden from screen sharing / recordings by default (Settings can turn it
+  // off). Set before the page loads so the overlay never shows up in a share.
+  mainWindow.setContentProtection(true)
+
   // Set window level to float above everything
   mainWindow.setAlwaysOnTop(true, 'floating', 1)
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -152,19 +165,32 @@ function createTray() {
   const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`)
   icon.setTemplateImage(true)
   tray = new Tray(icon)
+  tray.setToolTip('Ghost AI')
+  updateTrayMenu()
 
-  const contextMenu = Menu.buildFromTemplate([
+  tray.on('click', () => {
+    toggleOverlay()
+  })
+}
+
+// Tray menu labels show the current (user-configurable) shortcuts
+function updateTrayMenu() {
+  if (!tray) return
+  const label = (text: string, action: ShortcutAction) =>
+    `${text} (${formatAccelerator(currentShortcuts[action], process.platform === 'darwin')})`
+
+  tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: 'Show/Hide (Cmd+Shift+G)',
+      label: label('Show/Hide', 'toggleOverlay'),
       click: () => toggleOverlay(),
     },
     {
-      label: 'Screenshot (Cmd+Shift+S)',
-      click: () => captureScreenshot(),
+      label: label('Screenshot', 'screenshot'),
+      click: () => runShortcutAction('screenshot'),
     },
     {
-      label: 'Crop Screenshot (Cmd+Shift+X)',
-      click: () => captureScreenshotCrop(),
+      label: label('Crop Screenshot', 'cropScreenshot'),
+      click: () => runShortcutAction('cropScreenshot'),
     },
     { type: 'separator' },
     {
@@ -181,14 +207,7 @@ function createTray() {
         app.quit()
       },
     },
-  ])
-
-  tray.setToolTip('Ghost AI')
-  tray.setContextMenu(contextMenu)
-
-  tray.on('click', () => {
-    toggleOverlay()
-  })
+  ]))
 }
 
 function toggleOverlay() {
@@ -208,25 +227,45 @@ function toggleOverlay() {
   mainWindow?.webContents.send('overlay-visibility', isOverlayVisible)
 }
 
-async function captureScreenshot(): Promise<string | null> {
+// The display the user is working on: the one under the mouse pointer
+function activeDisplay(): Electron.Display {
+  return screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+}
+
+// Capture `display` at its physical resolution (sharp on Retina). The overlay
+// itself is left out while content protection is on.
+async function captureDisplay(display: Electron.Display): Promise<Electron.NativeImage | null> {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
-      thumbnailSize: { width: 1920, height: 1080 },
+      thumbnailSize: nativeCaptureSize(display),
     })
-
-    if (sources.length > 0) {
-      return sources[0].thumbnail.toDataURL()
-    }
+    const source = sources.find(s => s.display_id === String(display.id)) ?? sources[0]
+    if (source && !source.thumbnail.isEmpty()) return source.thumbnail
   } catch (err) {
     console.error('Screenshot capture failed:', err)
   }
   return null
 }
 
+// Full screenshot for the model, downscaled to FULL_SCREENSHOT_MAX_EDGE
+async function captureScreenshot(): Promise<string | null> {
+  const image = await captureDisplay(activeDisplay())
+  if (!image) return null
+  const target = fitWithin(image.getSize(), FULL_SCREENSHOT_MAX_EDGE)
+  const sized = target.width === image.getSize().width ? image : image.resize({ ...target, quality: 'best' })
+  return sized.toDataURL()
+}
+
+// Region screenshot: the selection overlay opens on the display under the
+// pointer and the crop is cut from the native-resolution capture.
 async function captureScreenshotCrop(): Promise<string | null> {
-  const screenshot = await captureScreenshot()
-  if (!screenshot) return null
+  const display = activeDisplay()
+  const image = await captureDisplay(display)
+  if (!image) return null
+  // Background preview for the selection overlay only (dimmed): JPEG keeps a
+  // Retina capture to a few MB. The crop itself is cut from the native image.
+  const screenshot = `data:image/jpeg;base64,${image.toJPEG(85).toString('base64')}`
 
   // Hide main window so it doesn't appear in the crop overlay
   const wasVisible = mainWindow?.isVisible() ?? false
@@ -234,7 +273,6 @@ async function captureScreenshotCrop(): Promise<string | null> {
   if (wasVisible) mainWindow?.hide()
 
   return new Promise<string | null>((resolve) => {
-    const display = screen.getPrimaryDisplay()
     const { x, y, width, height } = display.bounds
 
     const cropWindow = new BrowserWindow({
@@ -342,7 +380,7 @@ window.__cropResult=new Promise(ok=>{
             return
           }
 
-          const img = nativeImage.createFromDataURL(screenshot)
+          const img = image
           const imgSize = img.getSize()
           const scaleX = imgSize.width / width
           const scaleY = imgSize.height / height
@@ -361,33 +399,46 @@ window.__cropResult=new Promise(ok=>{
   })
 }
 
-function registerShortcuts() {
-  // Toggle overlay visibility
-  globalShortcut.register('CommandOrControl+Shift+G', () => {
-    toggleOverlay()
-  })
+let currentShortcuts: Shortcuts = { ...DEFAULT_SHORTCUTS }
+let shortcutsSuspended = false
 
-  // Capture full screenshot
-  globalShortcut.register('CommandOrControl+Shift+S', async () => {
-    const screenshot = await captureScreenshot()
-    if (screenshot) {
-      mainWindow?.webContents.send('screenshot-captured', screenshot)
+function runShortcutAction(action: ShortcutAction) {
+  switch (action) {
+    case 'toggleOverlay':
+      toggleOverlay()
+      break
+    case 'screenshot':
+    case 'cropScreenshot':
+      void (action === 'screenshot' ? captureScreenshot() : captureScreenshotCrop()).then(shot => {
+        if (shot) mainWindow?.webContents.send('screenshot-captured', shot)
+      })
+      break
+    case 'focusInput':
+      if (!isOverlayVisible) toggleOverlay()
+      mainWindow?.webContents.send('focus-input')
+      break
+  }
+}
+
+/**
+ * (Re)register the global shortcuts. Returns the actions that could not be
+ * registered: invalid accelerators, or combinations another app already owns
+ * (globalShortcut.register returns false).
+ */
+function registerShortcuts(shortcuts: Shortcuts): ShortcutAction[] {
+  globalShortcut.unregisterAll()
+  const failed: ShortcutAction[] = []
+  for (const { id } of SHORTCUT_ACTIONS) {
+    const accelerator = shortcuts[id]
+    let ok = false
+    try {
+      ok = isValidAccelerator(accelerator) && globalShortcut.register(accelerator, () => runShortcutAction(id))
+    } catch {
+      ok = false
     }
-  })
-
-  // Capture cropped screenshot
-  globalShortcut.register('CommandOrControl+Shift+X', async () => {
-    const screenshot = await captureScreenshotCrop()
-    if (screenshot) {
-      mainWindow?.webContents.send('screenshot-captured', screenshot)
-    }
-  })
-
-  // Quick ask (focus input)
-  globalShortcut.register('CommandOrControl+Shift+A', () => {
-    if (!isOverlayVisible) toggleOverlay()
-    mainWindow?.webContents.send('focus-input')
-  })
+    if (!ok) failed.push(id)
+  }
+  return failed
 }
 
 // All Ollama traffic goes through Chromium's net.fetch instead of Node's
@@ -718,6 +769,31 @@ function setupIPC() {
     mainWindow?.setOpacity(opacity)
   })
 
+  // Hide the overlay from screen sharing / recordings (and from other apps'
+  // screenshots). Settings toggle, on by default.
+  ipcMain.on('set-content-protection', (_event, enabled: boolean) => {
+    mainWindow?.setContentProtection(Boolean(enabled))
+  })
+
+  // Apply the shortcuts from Settings; reports the ones that failed
+  ipcMain.handle('shortcuts-update', (_event, shortcuts: Partial<Shortcuts>) => {
+    currentShortcuts = { ...DEFAULT_SHORTCUTS }
+    for (const { id } of SHORTCUT_ACTIONS) {
+      if (typeof shortcuts?.[id] === 'string') currentShortcuts[id] = shortcuts[id] as string
+    }
+    const failed = shortcutsSuspended ? [] : registerShortcuts(currentShortcuts)
+    updateTrayMenu()
+    return { failed }
+  })
+
+  // While a shortcut is being recorded in Settings, the current ones must not
+  // fire (pressing the old combination would toggle the overlay).
+  ipcMain.on('shortcuts-suspend', (_event, suspend: boolean) => {
+    shortcutsSuspended = Boolean(suspend)
+    if (shortcutsSuspended) globalShortcut.unregisterAll()
+    else registerShortcuts(currentShortcuts)
+  })
+
   // Microphone permission
   ipcMain.handle('request-mic-permission', async () => {
     if (process.platform === 'darwin') {
@@ -983,7 +1059,7 @@ app.whenReady().then(() => {
     createTray()
   }
 
-  registerShortcuts()
+  registerShortcuts(currentShortcuts)
   setupIPC()
 
   app.on('activate', () => {

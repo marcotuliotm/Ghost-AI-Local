@@ -36,6 +36,7 @@ Ghost-AI-Local/
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
+│   │   ├── ShortcutRecorder.tsx # Click-and-press recorder for a global shortcut
 │   │   ├── Settings.tsx      # Settings panel (model, context window, preset editor, appearance, Whisper model/language, transcription)
 │   │   └── HelpPanel.tsx     # Help reference (shortcuts, buttons, descriptions)
 │   ├── hooks/
@@ -43,13 +44,16 @@ Ghost-AI-Local/
 │   │   ├── useTranscriptContext.ts # Progressive transcript summary → per-request context
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking, model/language, reload detection
 │   ├── lib/
+│   │   ├── csp.ts            # Renderer Content-Security-Policy (injected by vite.config.mts)
 │   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
 │   │   ├── filename.ts       # AI-generated file names (shared by every Save) + date stamps
 │   │   ├── notes.ts          # Meeting notes: prompt, budget fitting, Markdown export
 │   │   ├── ollama.ts         # Local-URL check, cloud-model detection, stream-line parsing (also used by electron/main.ts)
 │   │   ├── presets.ts        # Built-in prompt presets, CRUD, merge/validation, {{transcript}} filling
+│   │   ├── screenshot.ts     # Native (Retina) capture size, downscale for full screenshots
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
 │   │   ├── settings.ts       # mergeSettings(): stored settings over DEFAULT_SETTINGS
+│   │   ├── shortcuts.ts      # Default/validated global shortcuts, key-event recording, labels (also used by electron/main.ts)
 │   │   └── whisper.ts        # Whisper models/languages + pipeline options (also imported by electron/main.ts)
 │   └── styles/
 │       └── globals.css       # TailwindCSS + custom glass/animation styles
@@ -97,7 +101,7 @@ npm run dist:win   # Build + package Windows NSIS
 
 1. **Chat**: User input -> `useGhostAI.sendMessage()` (queued if a reply is streaming) -> IPC `ollama-chat-stream` with a `requestId` -> main process `fetch()` to Ollama -> chunks `{ requestId, content, thinking }` back via `webContents.send('ollama-stream-chunk')` -> renderer updates that reply in real time -> the invoke resolves with the final `{ content, thinking, aborted? }`
 2. **Audio**: Mic/System audio -> Web Audio API (per-channel AudioWorklet PCM capture) -> `SpeechSegmenter` VAD (segment closes on a pause or at `transcriptionInterval`) -> serial queue -> resample to 16kHz -> IPC `whisper-transcribe` (with `settings.transcriptionLanguage`) -> main process runs the Whisper pipeline loaded for `settings.whisperModel` -> text returned. With "Speakers" on, system-audio chunks also go through IPC `embed-speaker` -> main process speaker-embedding model -> embedding clustered in the renderer into A/B/C. Result is displayed as labeled segments in the AudioCapture transcript area
-3. **Screenshot**: Global shortcut or button -> `desktopCapturer.getSources()` -> base64 dataURL -> sent to Ollama as context with analysis prompt
+3. **Screenshot**: Global shortcut, tray or button -> display under the mouse pointer -> `desktopCapturer.getSources()` at that display's native resolution -> full screenshot downscaled to 1920px long edge / crop cut from the native image -> base64 dataURL -> sent to Ollama with an analysis prompt
 4. **Settings**: on startup `useGhostAI` calls IPC `settings-load` -> `mergeSettings(DEFAULT_SETTINGS, stored)`; every later change is written back with `settings-save`
 5. **Meeting notes**: Notes button (or the offer after Stop) -> `Overlay` builds the request from `useTranscriptContext().getContext()` via `buildMeetingNotesRequest` -> `sendMessage(..., { systemPrompt, standalone: true, kind: 'notes' })` streams the Markdown into the chat -> **Save .md** on that reply -> IPC `save-conversation` with `format: 'md'`
 
@@ -129,6 +133,9 @@ npm run dist:win   # Build + package Windows NSIS
 | `window-resize` | renderer->main | send | Resize window |
 | `set-opacity` | renderer->main | send | Set window opacity |
 | `set-ignore-mouse` | renderer->main | send | Click-through toggle |
+| `set-content-protection` | renderer->main | send | Hide the overlay from screen sharing / recordings (`settings.hideFromScreenShare`) |
+| `shortcuts-update` | renderer->main | invoke | Register `settings.shortcuts`; returns `{ failed }` (invalid or owned by another app); also relabels the tray |
+| `shortcuts-suspend` | renderer->main | send | Unregister / restore global shortcuts while one is being recorded in Settings |
 | `ollama-stream-chunk` | main->renderer | send | Streaming chunk `{ requestId, content, thinking }` |
 | `screenshot-captured` | main->renderer | send | Screenshot from shortcut |
 | `focus-input` | main->renderer | send | Focus chat input |
@@ -152,6 +159,8 @@ interface Settings {
   presets: Preset[]            // built-ins first (General, Technical interview, Sales call, Lecture/Class), then user presets
   activePresetId: string       // default 'general'
   reasoning: boolean           // default true: thinking models reason (shown above the reply); false sends think: false
+  shortcuts: Shortcuts         // { toggleOverlay, screenshot, cropScreenshot, focusInput } as Electron accelerators
+  hideFromScreenShare: boolean // default true: setContentProtection on the overlay
 }
 
 interface Preset {
@@ -242,7 +251,16 @@ The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instea
 System-audio capture via `getDisplayMedia({ audio: 'loopback' })` can be killed by macOS after ~20 minutes (ScreenCaptureKit timeout). When the underlying track emits `onended`, `AudioCapture` sets `streamDied = true`, which triggers a `useEffect` that tears down the dead audio graph and re-requests the streams for the previously selected source — without clearing the accumulated transcript, the auto-send timer, or the duration counter.
 
 ### Tray and crop window
-`createTray()` is gated behind `!VITE_DEV_SERVER_URL` (triggers `SetApplicationIsDaemon` on unsigned dev builds). The crop window created by `captureScreenshotCrop` runs an inline `data:` URL page with a fullscreen canvas, hides the main window during selection, and restores its bounds + visibility on finish.
+`createTray()` is gated behind `!VITE_DEV_SERVER_URL` (triggers `SetApplicationIsDaemon` on unsigned dev builds). Its menu labels show the configured shortcuts (`updateTrayMenu`) and its Screenshot items run the same action as the shortcuts. The crop window created by `captureScreenshotCrop` opens on the display under the pointer, runs an inline `data:` URL page with a fullscreen canvas (background preview as JPEG to keep Retina captures small), hides the main window during selection, cuts the crop from the native-resolution image and restores the window's bounds + visibility on finish.
+
+### Screen-sharing protection
+`settings.hideFromScreenShare` (default **on**) calls `BrowserWindow.setContentProtection` — also set in `createWindow` before the page loads, so the overlay never flashes into a share. It hides the window from screen sharing, recordings and screenshots taken by other apps — and from Ghost AI's own screenshots (a plus: the overlay doesn't cover what's being analyzed). It also blanks the window for tools that capture it (e.g. UI automation screenshots); turn it off in Settings > Privacy when that's needed.
+
+### Configurable global shortcuts
+`settings.shortcuts` holds Electron accelerators (`src/lib/shortcuts.ts`: defaults, `isValidAccelerator` — at least one non-Shift modifier unless it's an F-key, `acceleratorFromKeyEvent` — uses `KeyboardEvent.code`, so Option doesn't turn G into ©, `formatAccelerator` for labels). The main process registers the defaults at startup; once settings load, `useGhostAI` sends the stored ones via `shortcuts-update`, which re-registers everything and returns the actions that failed (`globalShortcut.register` returns false when another app owns the combination) — Settings shows "In use by another app". Duplicates block Save. While a recorder is active, `shortcuts-suspend` unregisters them so pressing the old combination doesn't fire it. Labels in the Overlay, Help, ChatInput placeholder and tray all follow the setting.
+
+### Content-Security-Policy
+`vite.config.mts` injects a `<meta http-equiv="Content-Security-Policy">` built by `src/lib/csp.ts`. Production: `default-src 'none'`, `connect-src 'none'` (the renderer never touches the network — Ollama/Whisper go through IPC), `script-src 'self' blob:` (blob: = the AudioWorklet module), images `self data: blob:` (screenshots). Dev adds only what Vite needs: `'unsafe-inline'` scripts (React-refresh preamble) and `localhost` ws/http for HMR. If the renderer ever needs a new source, add it there deliberately.
 
 ### Tray is production-only
 Creating a `Tray` in dev mode triggers `SetApplicationIsDaemon` errors on unsigned macOS builds. The tray and dock-hiding are gated behind `!VITE_DEV_SERVER_URL`.
@@ -322,16 +340,18 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ## Global Shortcuts
 
+Defaults (all configurable in Settings > Shortcuts; see "Configurable global shortcuts"):
+
 | Shortcut | Action |
 |----------|--------|
 | `Cmd+Shift+G` | Toggle overlay visibility (show/hide) |
-| `Cmd+Shift+S` | Capture full screenshot and send to Ollama for analysis |
-| `Cmd+Shift+X` | Open a fullscreen crop overlay, capture selected region, send to Ollama for analysis |
+| `Cmd+Shift+S` | Capture the screen under the pointer and send it to Ollama for analysis |
+| `Cmd+Shift+X` | Open a crop overlay on the screen under the pointer, capture the selected region, send to Ollama |
 | `Cmd+Shift+A` | Focus the chat text input (shows overlay if hidden) |
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **344 tests** across 19 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **375 tests** across 23 test files under `src/__tests__/`.
 
 ### Running tests
 
@@ -355,6 +375,8 @@ npm run test:watch   # Watch mode
 
 - No secrets, API keys, tokens, or private data in the codebase
 - No external network calls except to `localhost` (Ollama) and `huggingface.co` (model download, first use of each model only)
+- The renderer runs under a CSP with `connect-src 'none'` in production (see "Content-Security-Policy")
+- The overlay is hidden from screen sharing by default (`setContentProtection`)
 - Settings (incl. prompts) are stored only locally in `userData/settings.json`; `whisper-load` only accepts model ids from `WHISPER_MODELS`
 - **Ollama must be local**: `isLocalOllamaUrl` (`src/lib/ollama.ts`) accepts only `localhost`/`*.localhost`, `127.0.0.0/8` and `::1` over http(s). The main process checks it on every Ollama request (`blockedOllamaRequest`), Settings won't save another URL, and `mergeSettings` resets a stored one. **Cloud models** (`remote_host` in `/api/tags`, or a `-cloud`/`:cloud` name) are proxied by the local Ollama to ollama.com, so they are hidden from the model list and refused by the main process
 - Permission handler restricted to media/microphone/screen only

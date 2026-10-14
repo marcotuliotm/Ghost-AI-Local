@@ -50,6 +50,14 @@ const api = {
     ipcRenderer.send('window-resize', { width, height }),
   setOpacity: (opacity: number) =>
     ipcRenderer.send('set-opacity', opacity),
+  setContentProtection: (enabled: boolean) =>
+    ipcRenderer.send('set-content-protection', enabled),
+
+  // Global shortcuts
+  shortcutsUpdate: (shortcuts: Record<string, string>) =>
+    ipcRenderer.invoke('shortcuts-update', shortcuts),
+  suspendShortcuts: (suspend: boolean) =>
+    ipcRenderer.send('shortcuts-suspend', suspend),
 
   // Microphone
   requestMicPermission: () => ipcRenderer.invoke('request-mic-permission'),

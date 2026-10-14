@@ -322,4 +322,15 @@ describe('Overlay', () => {
       expect(screen.getByPlaceholderText('Generating response... (1 queued)')).toBeInTheDocument()
     })
   })
+
+  describe('configured shortcuts', () => {
+    it('should label buttons and the welcome screen with the configured shortcuts', () => {
+      const settings = makeSettings({ shortcuts: { toggleOverlay: 'Alt+F1', screenshot: 'CommandOrControl+Alt+S', cropScreenshot: 'CommandOrControl+Alt+X', focusInput: 'Control+Space' } })
+      render(<Overlay {...defaultProps} settings={settings} />)
+      expect(screen.getByTitle('Capture full screen (Cmd+Option+S)')).toBeInTheDocument()
+      expect(screen.getByTitle('Capture screen region (Cmd+Option+X)')).toBeInTheDocument()
+      expect(screen.getByText('Option+F1')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Ask something... (Ctrl+Space)')).toBeInTheDocument()
+    })
+  })
 })

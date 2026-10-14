@@ -718,4 +718,20 @@ describe('useGhostAI', () => {
       expect(result.current.isConnected).toBe(false)
     })
   })
+
+  describe('global shortcuts', () => {
+    it('should register the stored shortcuts once settings are loaded', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { shortcuts: { screenshot: 'Alt+F1' } } })
+      renderHook(() => useGhostAI())
+      await waitFor(() => expect(window.ghostAPI.shortcutsUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ screenshot: 'Alt+F1', toggleOverlay: 'CommandOrControl+Shift+G' }),
+      ))
+    })
+
+    it('should expose shortcuts that could not be registered', async () => {
+      window.ghostAPI.shortcutsUpdate = vi.fn().mockResolvedValue({ failed: ['focusInput'] })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.shortcutErrors).toEqual(['focusInput']))
+    })
+  })
 })
