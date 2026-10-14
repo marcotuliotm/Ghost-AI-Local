@@ -19,6 +19,7 @@ const api = {
     messages: OllamaMessage[]
     baseUrl: string
     options?: { num_ctx?: number }
+    think?: boolean
   }) => ipcRenderer.invoke('ollama-chat', payload),
 
   ollamaChatStream: (payload: {
@@ -55,9 +56,9 @@ const api = {
   getMicStatus: () => ipcRenderer.invoke('get-mic-status'),
 
   // Whisper (local transcription)
-  whisperLoad: () => ipcRenderer.invoke('whisper-load'),
-  whisperTranscribe: (audioBuffer: ArrayBuffer) =>
-    ipcRenderer.invoke('whisper-transcribe', audioBuffer),
+  whisperLoad: (model: string) => ipcRenderer.invoke('whisper-load', model),
+  whisperTranscribe: (audioBuffer: ArrayBuffer, language: string) =>
+    ipcRenderer.invoke('whisper-transcribe', audioBuffer, language),
   whisperStatus: () => ipcRenderer.invoke('whisper-status'),
 
   // Speaker embedding (diarization)
@@ -66,14 +67,18 @@ const api = {
     ipcRenderer.invoke('embed-speaker', audioBuffer),
   embedStatus: () => ipcRenderer.invoke('embed-status'),
 
-  // Save conversation
-  saveConversation: (payload: { content: string; suggestedName: string }) =>
+  // Save conversation / transcript (.txt) or meeting notes (.md)
+  saveConversation: (payload: { content: string; suggestedName: string; format?: 'txt' | 'md' }) =>
     ipcRenderer.invoke('save-conversation', payload),
+
+  // Settings persistence (electron-store)
+  settingsLoad: () => ipcRenderer.invoke('settings-load'),
+  settingsSave: (settings: Record<string, unknown>) => ipcRenderer.invoke('settings-save', settings),
 
   // Clipboard (native, via main process)
   copyText: (text: string) => ipcRenderer.invoke('clipboard-write', text),
 
-  onWhisperProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => {
+  onWhisperProgress: (callback: (data: { status: string; message: string; progress: number; model?: string }) => void) => {
     const handler = (_event: any, data: any) => callback(data)
     ipcRenderer.on('whisper-progress', handler)
     return () => ipcRenderer.removeListener('whisper-progress', handler)

@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useWhisper } from '../hooks/useWhisper'
 import { SpeechSegmenter } from '../lib/segmenter'
 import { transcriptDelta, transcriptTail } from '../lib/context'
+import { fileStamp, suggestFilename } from '../lib/filename'
 
 interface AudioCaptureProps {
   // Return false to signal the text was not consumed (Auto mode will retry it).
@@ -9,9 +10,21 @@ interface AudioCaptureProps {
   // The parent sends the transcript itself as context
   onSummarize: () => void
   onSummarizePT: () => void
+  // Generate meeting notes from the transcript (parent builds the request)
+  onNotes?: () => void
   onTranscriptChange?: (text: string) => void
   isConnected: boolean
-  settings: { selectedModel: string; ollamaBaseUrl: string; transcriptionInterval: number; speakerThreshold: number }
+  // False until persisted settings are loaded, so Whisper doesn't start
+  // downloading the default model when another one was saved.
+  canLoadWhisper?: boolean
+  settings: {
+    selectedModel: string
+    ollamaBaseUrl: string
+    transcriptionInterval: number
+    speakerThreshold: number
+    whisperModel?: string
+    transcriptionLanguage?: string
+  }
 }
 
 type CaptureStatus = 'idle' | 'requesting' | 'listening' | 'error'
@@ -191,7 +204,7 @@ async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number):
  * the transcription interval) → serial queue → Whisper (text) [+ embedding for
  * system] → labeled transcript
  */
-export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTranscriptChange, isConnected, settings }: AudioCaptureProps) {
+export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNotes, onTranscriptChange, isConnected, canLoadWhisper = true, settings }: AudioCaptureProps) {
   const [status, setStatus] = useState<CaptureStatus>('idle')
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
   const [errorMsg, setErrorMsg] = useState('')
@@ -203,6 +216,8 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   const [autoSendInterval, setAutoSendInterval] = useState(30)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
   const [streamDied, setStreamDied] = useState(false)
+  // After Stop, offer to turn the transcript into meeting notes
+  const [offerNotes, setOfferNotes] = useState(false)
 
   // Speaker diarization (A/B/C) toggle + embedding model status
   const [diarize, setDiarize] = useState(false)
@@ -239,17 +254,24 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
   const transcriptScrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
 
-  const { status: whisperStatus, progress, progressMessage, error: whisperError, loadModel, transcribe } = useWhisper()
+  const {
+    status: whisperStatus, progress, progressMessage, error: whisperError, needsReload, loadModel, transcribe,
+  } = useWhisper(settings.whisperModel, settings.transcriptionLanguage)
 
   // Derived plain-text transcript (with speaker labels) for consumers
   const transcriptText = formatSegments(segments)
 
-  // Load Whisper model on mount
+  // A model switch can't happen mid-recording: the pipeline in use would be
+  // disposed. It is applied once capture stops (and the queue has drained).
+  const isCapturing = status === 'listening' || status === 'requesting'
+
+  // Load Whisper on mount, and reload when the model is changed in Settings
   useEffect(() => {
-    if (whisperStatus === 'idle') {
+    if (!canLoadWhisper) return
+    if (whisperStatus === 'idle' || (needsReload && !isCapturing)) {
       loadModel()
     }
-  }, [whisperStatus, loadModel])
+  }, [canLoadWhisper, whisperStatus, needsReload, isCapturing, loadModel])
 
   // Keep onTranscription ref in sync to avoid stale closures in timers
   useEffect(() => {
@@ -709,6 +731,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
       streamsRef.current = streams.map(s => s.stream)
       isListeningRef.current = true
       setStatus('listening')
+      setOfferNotes(false)
       setDuration(0)
       setSegments([])
       speakerCentroidsRef.current = []
@@ -745,6 +768,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     setStatus('idle')
     setAudioLevel(0)
     setDuration(0)
+    if (lastTranscriptRef.current.trim()) setOfferNotes(true)
   }, [stopCapture, flushSegmenters, drainQueue])
 
   // Manual Suggest reply answers the most recent part of the conversation
@@ -763,7 +787,14 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     onSummarizePT()
   }, [transcriptText, onSummarizePT])
 
+  const handleNotes = useCallback(() => {
+    if (!transcriptText.trim() || !onNotes) return
+    setOfferNotes(false)
+    onNotes()
+  }, [transcriptText, onNotes])
+
   const handleClearTranscript = useCallback(() => {
+    setOfferNotes(false)
     setSegments([])
     speakerCentroidsRef.current = []
     lastTranscriptRef.current = ''
@@ -775,46 +806,20 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
     setIsSavingTranscript(true)
     try {
       const now = new Date()
-      const dateStr = now.toISOString().slice(0, 10)
-      const timeStr = now.toTimeString().slice(0, 5).replace(':', 'h')
+      const { date: dateStr, time: timeStr } = fileStamp(now)
 
       const content = `Audio Transcription\nDate: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${timeStr}\nSource: ${audioSource === 'mic' ? 'Microphone' : audioSource === 'system' ? 'System Audio' : 'Mic + System'}\n\n${'='.repeat(50)}\n\n${transcriptText.trim()}\n`
 
       let suggestedName = `transcription_${dateStr}_${timeStr}`
-
       if (isConnected) {
-        try {
-          const result = await window.ghostAPI.ollamaChat({
-            model: settings.selectedModel,
-            baseUrl: settings.ollamaBaseUrl,
-            messages: [
-              {
-                role: 'system',
-                content: 'Generate a very short filename (2-4 words, no spaces use underscores, lowercase, no extension, no special chars, english) that describes the topic of this transcription. Reply with ONLY the filename, nothing else.',
-              },
-              { role: 'user', content: transcriptText.trim().slice(0, 500) },
-            ],
-          })
-
-          if (result.success && result.message?.content) {
-            const aiName = result.message.content
-              .trim()
-              .toLowerCase()
-              .replace(/[^a-z0-9_]/g, '_')
-              .replace(/_+/g, '_')
-              .replace(/^_|_$/g, '')
-              .slice(0, 40)
-
-            if (aiName.length > 2) {
-              suggestedName = `transcript_${aiName}_${dateStr}`
-            }
-          }
-        } catch {}
+        const aiName = await suggestFilename(settings, transcriptText.trim().slice(0, 500), 'transcription')
+        if (aiName) suggestedName = `transcript_${aiName}_${dateStr}`
       }
 
       await window.ghostAPI.saveConversation({
         content,
         suggestedName: `${suggestedName}.txt`,
+        format: 'txt',
       })
     } finally {
       setIsSavingTranscript(false)
@@ -871,6 +876,13 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
           <button onClick={loadModel} className="text-[9px] text-ghost-accent hover:underline">
             Retry
           </button>
+        </div>
+      )}
+
+      {/* Model changed in Settings while recording */}
+      {needsReload && isCapturing && (
+        <div className="text-[9px] text-ghost-warning">
+          The new Whisper model will load when you stop recording.
         </div>
       )}
 
@@ -1086,6 +1098,25 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
               </p>
             )}
           </div>
+          {offerNotes && onNotes && hasTranscript && status === 'idle' && (
+            <div className="flex items-center gap-1.5 text-[9px] text-ghost-text-muted animate-fade-in">
+              <span>Recording stopped. Generate meeting notes?</span>
+              <button
+                onClick={handleNotes}
+                disabled={!isConnected}
+                className="px-1.5 py-0.5 rounded font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 disabled:opacity-30 transition-colors"
+              >
+                Generate notes
+              </button>
+              <button
+                onClick={() => setOfferNotes(false)}
+                className="px-1 rounded hover:bg-ghost-fill-strong transition-colors"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
           {hasTranscript && (
             <div className="flex gap-1">
               <button
@@ -1109,6 +1140,16 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onTr
               >
                 Summary PT
               </button>
+              {onNotes && (
+                <button
+                  onClick={handleNotes}
+                  disabled={!isConnected}
+                  className="px-2 py-0.5 rounded text-[9px] font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-30 transition-colors"
+                  title="Generate meeting notes (summary, decisions, action items, open questions)"
+                >
+                  Notes
+                </button>
+              )}
               <button
                 onClick={handleSaveTranscript}
                 disabled={isSavingTranscript}

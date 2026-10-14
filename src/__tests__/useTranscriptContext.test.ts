@@ -2,19 +2,19 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
 import type { Settings } from '../types'
+import { makeSettings } from './fixtures'
 
-const settings: Settings = {
+const settings: Settings = makeSettings({
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: '{{transcript}}',
   opacity: 0.9,
   fontSize: 12,
-  language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 4096, // prompt budget 3072 → compaction above ~1229 tokens (~4900 chars)
-}
+})
 
 const longTranscript = (n: number, prefix = 'A') =>
   Array.from({ length: n }, (_, i) => `${prefix}: sentence number ${i} about the project plan.`).join('\n')

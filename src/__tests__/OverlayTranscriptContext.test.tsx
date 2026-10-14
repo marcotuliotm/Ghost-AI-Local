@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { Overlay } from '../components/Overlay'
 import type { ChatMessage, Settings } from '../types'
+import { makeSettings } from './fixtures'
 
 // Stub AudioCapture so tests can drive its callbacks directly
 vi.mock('../components/AudioCapture', () => ({
@@ -15,18 +16,17 @@ vi.mock('../components/AudioCapture', () => ({
   ),
 }))
 
-const settings: Settings = {
+const settings: Settings = makeSettings({
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   systemPrompt: 'You are Ghost AI.',
   suggestReplyPrompt: 'They said: {{transcript}}',
   opacity: 0.9,
   fontSize: 12,
-  language: 'pt-BR',
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 8192,
-}
+})
 
 const props = {
   messages: [] as ChatMessage[],

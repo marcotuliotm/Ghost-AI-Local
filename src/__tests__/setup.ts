@@ -34,6 +34,8 @@ const createMockGhostAPI = () => ({
   embedSpeaker: vi.fn().mockResolvedValue({ success: true, embedding: [0.1, 0.2, 0.3] }),
   embedStatus: vi.fn().mockResolvedValue({ status: 'idle' }),
   saveConversation: vi.fn().mockResolvedValue({ success: true, path: '/test/path.txt' }),
+  settingsLoad: vi.fn().mockResolvedValue({ settings: null }),
+  settingsSave: vi.fn().mockResolvedValue({ success: true }),
   copyText: vi.fn().mockResolvedValue(true),
   onWhisperProgress: vi.fn().mockReturnValue(() => {}),
   onEmbedProgress: vi.fn().mockReturnValue(() => {}),

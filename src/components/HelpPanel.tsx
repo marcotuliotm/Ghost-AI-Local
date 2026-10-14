@@ -40,6 +40,15 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ButtonRow
               icon={
                 <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              }
+              label="Change preset"
+              description="Switches the prompt preset (General, Technical interview, Sales call, Lecture/Class or your own). A preset sets the system prompt, the Suggest reply / Auto prompt and the chat quick actions"
+            />
+            <ButtonRow
+              icon={
+                <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
               }
@@ -91,7 +100,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Settings"
-              description="Opens the settings panel (model, context window, prompt, opacity, transcription interval)"
+              description="Opens the settings panel (model, context window, presets, appearance, Whisper model and language, transcription). Settings are saved on this machine and kept across restarts"
             />
             <ButtonRow
               icon={
@@ -140,7 +149,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Record / Stop"
-              description="Starts or stops audio capture. Audio is transcribed locally by Whisper. If macOS kills the stream (~20 min), it auto-reconnects"
+              description="Starts or stops audio capture. Audio is transcribed locally by Whisper, using the model and language chosen in Settings (a model change made while recording applies after Stop). If macOS kills the stream (~20 min), it auto-reconnects"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}
@@ -174,6 +183,11 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
               description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics, each with a short explanation, in Brazilian Portuguese (pt-BR)"
             />
             <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-amber-500/20 text-amber-500">Notes</span>}
+              label="Notes"
+              description="Generates meeting notes in Markdown, in the language of the conversation: Summary, Key decisions, Action items (- [ ] task — owner, using the You/A/B/C speaker labels when Speakers is on) and Open questions. Also offered when you stop recording. Use Save .md on the reply to export them"
+            />
+            <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-success/20 text-ghost-success">Save</span>}
               label="Save"
               description="Saves the transcription to a .txt file with an AI-generated filename"
@@ -189,6 +203,9 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
         {/* Quick Actions */}
         <Section title="Quick Actions (Chat)">
           <div className="space-y-2 text-[10px] text-ghost-text-muted">
+            <p className="opacity-70 leading-relaxed">
+              Quick actions come from the active preset and can be edited in Settings. The General preset has:
+            </p>
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded-full text-[8px] bg-ghost-accent/20 text-ghost-accent">Summarize</span>}
               label="Summarize"

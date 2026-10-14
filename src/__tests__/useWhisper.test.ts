@@ -224,4 +224,70 @@ describe('useWhisper', () => {
       expect(result.current.error).toBe('Model load failed')
     })
   })
+
+  describe('model and language', () => {
+    it('should load the requested model', async () => {
+      window.ghostAPI.whisperLoad = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-small' })
+      const { result } = renderHook(() => useWhisper('onnx-community/whisper-small', 'portuguese'))
+      await act(async () => {
+        await result.current.loadModel()
+      })
+      expect(window.ghostAPI.whisperLoad).toHaveBeenCalledWith('onnx-community/whisper-small')
+      expect(result.current.loadedModel).toBe('onnx-community/whisper-small')
+      expect(result.current.needsReload).toBe(false)
+    })
+
+    it('should pass the current language with each transcription', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-base' })
+      const { result, rerender } = renderHook(
+        ({ lang }) => useWhisper('onnx-community/whisper-base', lang),
+        { initialProps: { lang: 'portuguese' } },
+      )
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      await act(async () => {
+        await result.current.transcribe(new Float32Array([0.1, 0.2]))
+      })
+      expect(window.ghostAPI.whisperTranscribe).toHaveBeenLastCalledWith(expect.any(ArrayBuffer), 'portuguese')
+
+      rerender({ lang: 'auto' })
+      await act(async () => {
+        await result.current.transcribe(new Float32Array([0.1, 0.2]))
+      })
+      expect(window.ghostAPI.whisperTranscribe).toHaveBeenLastCalledWith(expect.any(ArrayBuffer), 'auto')
+    })
+
+    it('should flag a reload when a different model is selected, then load it', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-tiny' })
+      window.ghostAPI.whisperLoad = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-base' })
+      const { result, rerender } = renderHook(
+        ({ model }) => useWhisper(model, 'english'),
+        { initialProps: { model: 'onnx-community/whisper-tiny' } },
+      )
+      await waitFor(() => expect(result.current.loadedModel).toBe('onnx-community/whisper-tiny'))
+      expect(result.current.needsReload).toBe(false)
+
+      rerender({ model: 'onnx-community/whisper-base' })
+      expect(result.current.needsReload).toBe(true)
+
+      await act(async () => {
+        await result.current.loadModel()
+      })
+      expect(window.ghostAPI.whisperLoad).toHaveBeenCalledWith('onnx-community/whisper-base')
+      expect(result.current.needsReload).toBe(false)
+    })
+
+    it('should track the model reported by progress events', async () => {
+      let progressCallback: any = null
+      window.ghostAPI.onWhisperProgress = vi.fn().mockImplementation((cb) => {
+        progressCallback = cb
+        return () => {}
+      })
+      const { result } = renderHook(() => useWhisper('onnx-community/whisper-base.en', 'english'))
+      act(() => {
+        progressCallback({ status: 'ready', message: 'Whisper ready', progress: 100, model: 'onnx-community/whisper-base.en' })
+      })
+      expect(result.current.loadedModel).toBe('onnx-community/whisper-base.en')
+    })
+  })
 })

@@ -256,4 +256,139 @@ describe('AudioCapture', () => {
       })
     })
   })
+
+  describe('whisper model and notes', () => {
+    const tone = (n: number) => Float32Array.from({ length: n }, (_, i) => 0.2 * Math.sin(i / 5))
+
+    // Start a mic recording on a 16 kHz ScriptProcessor graph and return a
+    // function that feeds it audio.
+    async function startRecording(processors: any[]) {
+      fireEvent.click(await screen.findByText('Mic'))
+      fireEvent.click(await screen.findByTitle(/Transcribe/))
+      await waitFor(() => expect(processors).toHaveLength(1))
+      return (data: Float32Array) => processors[0].onaudioprocess({ inputBuffer: { getChannelData: () => data } })
+    }
+
+    function use16kContext() {
+      const processors: any[] = []
+      const Base = (globalThis as any).AudioContext
+      class Ctx16k extends Base {
+        sampleRate = 16000
+        createScriptProcessor() {
+          const p = { connect: vi.fn(), disconnect: vi.fn(), onaudioprocess: null as any }
+          processors.push(p)
+          return p
+        }
+      }
+      ;(globalThis as any).AudioContext = Ctx16k
+      return { processors, restore: () => { (globalThis as any).AudioContext = Base } }
+    }
+
+    it('should load the Whisper model chosen in Settings', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'idle' })
+      render(<AudioCapture {...defaultProps} settings={{ ...defaultProps.settings, whisperModel: 'onnx-community/whisper-small' }} />)
+      await waitFor(() => expect(window.ghostAPI.whisperLoad).toHaveBeenCalledWith('onnx-community/whisper-small'))
+    })
+
+    it('should not load Whisper until allowed', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'idle' })
+      const { rerender } = render(<AudioCapture {...defaultProps} canLoadWhisper={false} />)
+      await new Promise(r => setTimeout(r, 20))
+      expect(window.ghostAPI.whisperLoad).not.toHaveBeenCalled()
+      rerender(<AudioCapture {...defaultProps} canLoadWhisper={true} />)
+      await waitFor(() => expect(window.ghostAPI.whisperLoad).toHaveBeenCalled())
+    })
+
+    it('should pass the transcription language to Whisper', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-base' })
+      const { processors, restore } = use16kContext()
+      try {
+        render(<AudioCapture {...defaultProps} settings={{ ...defaultProps.settings, whisperModel: 'onnx-community/whisper-base', transcriptionLanguage: 'portuguese' }} />)
+        const send = await startRecording(processors)
+        for (let i = 0; i < 4; i++) send(tone(4096))
+        for (let i = 0; i < 4; i++) send(new Float32Array(4096))
+        await waitFor(() => expect(window.ghostAPI.whisperTranscribe).toHaveBeenCalledWith(expect.any(ArrayBuffer), 'portuguese'))
+      } finally {
+        restore()
+      }
+    })
+
+    it('should defer a model switch until recording stops', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready', model: 'onnx-community/whisper-tiny' })
+      window.ghostAPI.whisperLoad = vi.fn().mockImplementation(async (model: string) => ({ status: 'ready', model }))
+      const { processors, restore } = use16kContext()
+      const tiny = { ...defaultProps.settings, whisperModel: 'onnx-community/whisper-tiny' }
+      try {
+        const { rerender } = render(<AudioCapture {...defaultProps} settings={tiny} />)
+        await startRecording(processors)
+
+        rerender(<AudioCapture {...defaultProps} settings={{ ...tiny, whisperModel: 'onnx-community/whisper-base' }} />)
+        expect(await screen.findByText(/new Whisper model will load when you stop recording/)).toBeInTheDocument()
+        expect(window.ghostAPI.whisperLoad).not.toHaveBeenCalledWith('onnx-community/whisper-base')
+
+        fireEvent.click(screen.getByTitle('Stop'))
+        await waitFor(() => expect(window.ghostAPI.whisperLoad).toHaveBeenCalledWith('onnx-community/whisper-base'))
+      } finally {
+        restore()
+      }
+    })
+
+    it('should offer meeting notes after Stop and via the Notes button', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready' })
+      const onNotes = vi.fn()
+      const { processors, restore } = use16kContext()
+      try {
+        render(<AudioCapture {...defaultProps} onNotes={onNotes} />)
+        const send = await startRecording(processors)
+        for (let i = 0; i < 4; i++) send(tone(4096))
+        for (let i = 0; i < 4; i++) send(new Float32Array(4096))
+        expect(await screen.findByText('transcribed text')).toBeInTheDocument()
+
+        // Notes sits in the action row next to Summarize / Summary PT
+        fireEvent.click(screen.getByText('Notes'))
+        expect(onNotes).toHaveBeenCalledTimes(1)
+        expect(screen.queryByText(/Generate meeting notes\?/)).toBeNull()
+
+        fireEvent.click(screen.getByTitle('Stop'))
+        expect(await screen.findByText(/Recording stopped. Generate meeting notes\?/)).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Generate notes'))
+        expect(onNotes).toHaveBeenCalledTimes(2)
+        expect(screen.queryByText(/Generate meeting notes\?/)).toBeNull()
+      } finally {
+        restore()
+      }
+    })
+
+    it('should let the notes offer be dismissed', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready' })
+      const { processors, restore } = use16kContext()
+      try {
+        render(<AudioCapture {...defaultProps} onNotes={vi.fn()} />)
+        const send = await startRecording(processors)
+        for (let i = 0; i < 4; i++) send(tone(4096))
+        for (let i = 0; i < 4; i++) send(new Float32Array(4096))
+        await screen.findByText('transcribed text')
+        fireEvent.click(screen.getByTitle('Stop'))
+        await screen.findByText(/Generate meeting notes\?/)
+        fireEvent.click(screen.getByTitle('Dismiss'))
+        expect(screen.queryByText(/Generate meeting notes\?/)).toBeNull()
+      } finally {
+        restore()
+      }
+    })
+
+    it('should not offer notes after stopping with no transcript', async () => {
+      window.ghostAPI.whisperStatus = vi.fn().mockResolvedValue({ status: 'ready' })
+      const { processors, restore } = use16kContext()
+      try {
+        render(<AudioCapture {...defaultProps} onNotes={vi.fn()} />)
+        await startRecording(processors)
+        fireEvent.click(screen.getByTitle('Stop'))
+        await screen.findByTitle(/Transcribe/)
+        expect(screen.queryByText(/Generate meeting notes\?/)).toBeNull()
+      } finally {
+        restore()
+      }
+    })
+  })
 })

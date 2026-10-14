@@ -71,6 +71,13 @@ describe('HelpPanel', () => {
       expect(summaryPTElements.length).toBeGreaterThanOrEqual(1)
     })
 
+    it('should document Notes button', () => {
+      render(<HelpPanel {...defaultProps} />)
+      expect(screen.getAllByText('Notes').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByText(/Key decisions, Action items/)).toBeInTheDocument()
+      expect(screen.getByText(/Save .md/)).toBeInTheDocument()
+    })
+
     it('should document Auto button', () => {
       render(<HelpPanel {...defaultProps} />)
       // "Auto" appears in audio buttons section
@@ -127,6 +134,12 @@ describe('HelpPanel', () => {
     it('should document Clear Chat', () => {
       render(<HelpPanel {...defaultProps} />)
       expect(screen.getByText('Clear Chat')).toBeInTheDocument()
+    })
+
+    it('should document the preset switcher', () => {
+      render(<HelpPanel {...defaultProps} />)
+      expect(screen.getByText('Change preset')).toBeInTheDocument()
+      expect(screen.getByText(/Technical interview, Sales call, Lecture\/Class/)).toBeInTheDocument()
     })
   })
 
