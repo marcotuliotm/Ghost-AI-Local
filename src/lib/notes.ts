@@ -12,6 +12,7 @@ export const NOTES_REQUEST = 'Write meeting notes for this conversation.'
 const REQUEST_OVERHEAD_TOKENS = 3 * 4
 
 // Speaker labels AudioCapture writes at the start of a line ("You: ", "A: ", "Other: ").
+// Fallback when the caller doesn't pass the speakers (custom names aren't detectable).
 export function detectSpeakers(transcript: string): string[] {
   const found = new Set<string>()
   for (const m of transcript.matchAll(/^(You|Other|[A-Z]):\s/gm)) found.add(m[1])
@@ -35,7 +36,7 @@ export function meetingNotesInstructions(speakers: string[], language: string | 
   const owner = speakers.length > 0
     ? `The owner is the speaker label of whoever is responsible (${speakers.join(', ')}; "You" is the user). Use "Unassigned" when it is unclear.`
     : 'The owner is the person\'s name if it was said, otherwise "Unassigned".'
-  return `You write meeting notes from a conversation transcript. Speaker labels: "You" is the user; A, B, C or "Other" are other participants.
+  return `You write meeting notes from a conversation transcript. When labeled, each line starts with who is speaking: "You" is the user; any other label (a name, or A, B, C, "Other") is another participant.
 
 Reply with ONLY Markdown in exactly this structure — no title, no preamble, no other sections:
 
@@ -71,8 +72,13 @@ export interface MeetingNotesRequest {
  * use; here it is also trimmed, from the start, so instructions + context +
  * request fit in promptBudget(contextLength).
  */
-export function buildMeetingNotesRequest(context: string, contextLength: number, language: string | null = null): MeetingNotesRequest {
-  const systemPrompt = meetingNotesInstructions(detectSpeakers(context), language)
+export function buildMeetingNotesRequest(
+  context: string,
+  contextLength: number,
+  language: string | null = null,
+  speakers: string[] = [],
+): MeetingNotesRequest {
+  const systemPrompt = meetingNotesInstructions(speakers.length > 0 ? speakers : detectSpeakers(context), language)
   const available = promptBudget(contextLength)
     - estimateTokens(systemPrompt) - estimateTokens(NOTES_REQUEST) - REQUEST_OVERHEAD_TOKENS
   const fitted = estimateTokens(context) > available ? transcriptTail(context, Math.max(0, available)) : context.trim()

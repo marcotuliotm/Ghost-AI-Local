@@ -64,6 +64,8 @@ export function Overlay({
   const [showModelMenu, setShowModelMenu] = useState(false)
   const [showPresetMenu, setShowPresetMenu] = useState(false)
   const [currentTranscript, setCurrentTranscript] = useState('')
+  // Speakers in the transcript as displayed (custom names applied): notes owners
+  const [transcriptSpeakers, setTranscriptSpeakers] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelMenuRef = useRef<HTMLDivElement>(null)
@@ -146,12 +148,17 @@ export function Overlay({
     }
   }, [messages, settings, isConnected, isSaving])
 
+  const handleTranscriptChange = useCallback((text: string, speakers: string[] = []) => {
+    setCurrentTranscript(text)
+    setTranscriptSpeakers(prev => (prev.join('\u0000') === speakers.join('\u0000') ? prev : speakers))
+  }, [])
+
   // Meeting notes from the transcript context (summary + recent verbatim),
   // trimmed to the prompt budget, written in the conversation's language.
   // Sent without chat history; the reply is tagged so its bubble offers Save .md.
   const handleGenerateNotes = useCallback(() => {
     const language = notesLanguage(settings.whisperModel, settings.transcriptionLanguage)
-    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language)
+    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language, transcriptSpeakers)
     if (!request.context) return
     sendMessage(request.prompt, undefined, {
       context: request.context,
@@ -159,7 +166,7 @@ export function Overlay({
       standalone: true,
       kind: 'notes',
     })
-  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, sendMessage])
+  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, transcriptSpeakers, sendMessage])
 
   const handleSaveNotes = useCallback(async (markdown: string) => {
     const now = new Date()
@@ -420,7 +427,7 @@ export function Overlay({
               sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext() })
             }}
             onNotes={handleGenerateNotes}
-            onTranscriptChange={setCurrentTranscript}
+            onTranscriptChange={handleTranscriptChange}
             isConnected={isConnected}
             canLoadWhisper={settingsLoaded}
             settings={settings}

@@ -110,4 +110,12 @@ describe('notes export', () => {
     expect(doc).not.toContain('```')
     expect(doc.endsWith('\n')).toBe(true)
   })
+
+describe('custom speaker names', () => {
+  it('should use the speakers passed in (renamed) as owners', () => {
+    const req = buildMeetingNotesRequest('Maria: can you send the draft?\nYou: yes', 8192, null, ['Maria', 'You'])
+    expect(req.systemPrompt).toContain('(Maria, You;')
+    expect(req.systemPrompt).toContain('a name, or A, B, C')
+  })
+})
 })
