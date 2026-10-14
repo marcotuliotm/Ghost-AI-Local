@@ -43,6 +43,7 @@ describe('useTranscriptContext', () => {
 
     const call = (window.ghostAPI.ollamaChat as any).mock.calls[0][0]
     expect(call.options).toEqual({ num_ctx: 4096 })
+    expect(call.think).toBe(false) // background summary never waits on reasoning
     expect(call.messages[1].content).toContain('sentence number 0 ')
 
     const ctx = result.current.getContext()

@@ -75,4 +75,14 @@ describe('mergeSettings', () => {
     merged.presets[0].name = 'changed'
     expect(DEFAULT_SETTINGS.presets[0].name).toBe('General')
   })
+
+  it('should replace a stored non-local Ollama URL with the default', () => {
+    expect(mergeSettings(DEFAULT_SETTINGS, { ollamaBaseUrl: 'http://10.0.0.2:11434' }).ollamaBaseUrl).toBe('http://localhost:11434')
+    expect(mergeSettings(DEFAULT_SETTINGS, { ollamaBaseUrl: 'http://127.0.0.1:9000' }).ollamaBaseUrl).toBe('http://127.0.0.1:9000')
+  })
+
+  it('should default reasoning to on and keep a stored choice', () => {
+    expect(mergeSettings(DEFAULT_SETTINGS, {}).reasoning).toBe(true)
+    expect(mergeSettings(DEFAULT_SETTINGS, { reasoning: false }).reasoning).toBe(false)
+  })
 })

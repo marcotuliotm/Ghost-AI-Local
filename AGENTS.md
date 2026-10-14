@@ -33,8 +33,9 @@ Ghost-AI-Local/
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
 │   │   ├── AudioCapture.tsx  # Audio capture: source toggle, per-channel PCM, Whisper transcription, speaker diarization (You/A/B/C), Auto mode, auto-restart on stream death
-│   │   ├── ChatInput.tsx     # Text input with send
-│   │   ├── MessageBubble.tsx # Chat message display with per-message copy button (+ Save .md on meeting notes)
+│   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
+│   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
+│   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
 │   │   ├── Settings.tsx      # Settings panel (model, context window, preset editor, appearance, Whisper model/language, transcription)
 │   │   └── HelpPanel.tsx     # Help reference (shortcuts, buttons, descriptions)
 │   ├── hooks/
@@ -45,6 +46,7 @@ Ghost-AI-Local/
 │   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
 │   │   ├── filename.ts       # AI-generated file names (shared by every Save) + date stamps
 │   │   ├── notes.ts          # Meeting notes: prompt, budget fitting, Markdown export
+│   │   ├── ollama.ts         # Local-URL check, cloud-model detection, stream-line parsing (also used by electron/main.ts)
 │   │   ├── presets.ts        # Built-in prompt presets, CRUD, merge/validation, {{transcript}} filling
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
 │   │   ├── settings.ts       # mergeSettings(): stored settings over DEFAULT_SETTINGS
@@ -93,7 +95,7 @@ npm run dist:win   # Build + package Windows NSIS
 
 ### Data Flow
 
-1. **Chat**: User input -> `useGhostAI.sendMessage()` -> IPC `ollama-chat-stream` -> main process `fetch()` to Ollama -> stream chunks back via `webContents.send('ollama-stream-chunk')` -> renderer updates message in real time
+1. **Chat**: User input -> `useGhostAI.sendMessage()` (queued if a reply is streaming) -> IPC `ollama-chat-stream` with a `requestId` -> main process `fetch()` to Ollama -> chunks `{ requestId, content, thinking }` back via `webContents.send('ollama-stream-chunk')` -> renderer updates that reply in real time -> the invoke resolves with the final `{ content, thinking, aborted? }`
 2. **Audio**: Mic/System audio -> Web Audio API (per-channel AudioWorklet PCM capture) -> `SpeechSegmenter` VAD (segment closes on a pause or at `transcriptionInterval`) -> serial queue -> resample to 16kHz -> IPC `whisper-transcribe` (with `settings.transcriptionLanguage`) -> main process runs the Whisper pipeline loaded for `settings.whisperModel` -> text returned. With "Speakers" on, system-audio chunks also go through IPC `embed-speaker` -> main process speaker-embedding model -> embedding clustered in the renderer into A/B/C. Result is displayed as labeled segments in the AudioCapture transcript area
 3. **Screenshot**: Global shortcut or button -> `desktopCapturer.getSources()` -> base64 dataURL -> sent to Ollama as context with analysis prompt
 4. **Settings**: on startup `useGhostAI` calls IPC `settings-load` -> `mergeSettings(DEFAULT_SETTINGS, stored)`; every later change is written back with `settings-save`
@@ -103,10 +105,10 @@ npm run dist:win   # Build + package Windows NSIS
 
 | Channel | Direction | Type | Purpose |
 |---------|-----------|------|---------|
-| `ollama-chat` | renderer->main | invoke | Non-streaming Ollama chat; optional `think: false` turns off reasoning on thinking models (used for AI file names) |
-| `ollama-chat-stream` | renderer->main | invoke | Streaming Ollama chat |
-| `ollama-list-models` | renderer->main | invoke | List available models |
-| `ollama-check` | renderer->main | invoke | Health check (3s timeout) |
+| `ollama-chat` | renderer->main | invoke | Non-streaming Ollama chat; optional `think: false` turns off reasoning on thinking models (AI file names, background summary) |
+| `ollama-chat-stream` | renderer->main | invoke | Streaming chat `{ requestId, ..., think? }`; resolves `{ success, content, thinking, aborted?, error? }` when the stream ends |
+| `ollama-abort` | renderer->main | invoke | Stop the streaming request with that `requestId` (Stop button / Esc) |
+| `ollama-status` | renderer->main | invoke | Connection + local models from one `/api/tags` (3s timeout, polled every 10s); cloud models filtered out, `error` for a non-local URL |
 | `capture-screenshot` | renderer->main | invoke | desktopCapturer screenshot |
 | `whisper-load` | renderer->main | invoke | Load Whisper model `(modelId)`; a different id disposes the loaded pipeline and loads the new one (serialized) |
 | `whisper-transcribe` | renderer->main | invoke | Transcribe Float32Array audio `(buffer, language)`; `'auto'` = detect |
@@ -127,8 +129,7 @@ npm run dist:win   # Build + package Windows NSIS
 | `window-resize` | renderer->main | send | Resize window |
 | `set-opacity` | renderer->main | send | Set window opacity |
 | `set-ignore-mouse` | renderer->main | send | Click-through toggle |
-| `ollama-stream-chunk` | main->renderer | send | Streaming text chunk |
-| `ollama-stream-done` | main->renderer | send | Stream complete |
+| `ollama-stream-chunk` | main->renderer | send | Streaming chunk `{ requestId, content, thinking }` |
 | `screenshot-captured` | main->renderer | send | Screenshot from shortcut |
 | `focus-input` | main->renderer | send | Focus chat input |
 | `open-settings` | main->renderer | send | Open settings view |
@@ -150,6 +151,7 @@ interface Settings {
   transcriptionLanguage: string // 'auto' | 'english' | 'portuguese' | ... (default 'english'); replaced the legacy `language`
   presets: Preset[]            // built-ins first (General, Technical interview, Sales call, Lecture/Class), then user presets
   activePresetId: string       // default 'general'
+  reasoning: boolean           // default true: thinking models reason (shown above the reply); false sends think: false
 }
 
 interface Preset {
@@ -167,6 +169,8 @@ interface ChatMessage {
   timestamp: number
   isStreaming?: boolean        // true while assistant response is streaming
   screenshot?: string          // base64 dataURL if screenshot attached
+  thinking?: string            // the model's reasoning (thinking models), shown collapsible
+  stopped?: boolean            // generation stopped by the user (partial reply kept)
   kind?: 'notes'               // meeting-notes reply (bubble offers Save .md)
 }
 ```
@@ -186,6 +190,15 @@ Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: se
 The **live transcript is never embedded in user messages or stored in history**. `Overlay` passes it as `context` on each request (typed questions, quick actions, Suggest reply, Auto, Summarize, Summary PT). `useTranscriptContext` keeps it bounded: once the unsummarized transcript passes ~40% of the prompt budget, the older part is folded into a running summary in the background via `ollamaChat` (at most half the budget per pass; 30s backoff on failure) and only the recent ~15% stays verbatim. Clearing/restarting the transcript drops the summary. If summarization lags, the verbatim part is still capped (`transcriptTail`).
 
 Auto mode sends only the text added since its last send (`transcriptDelta`); the manual Suggest reply button sends the last ~300 tokens (`transcriptTail`). Both fill `{{transcript}}` in the active preset's `suggestReplyPrompt` with that excerpt (`fillSuggestReplyPrompt`; a template without the placeholder gets the excerpt appended).
+
+### Streaming: request ids, Stop, queue
+Every streaming request gets a `requestId` (`useGhostAI.startRequest`). The main process keeps an `AbortController` per id (`activeStreams`), tags each `ollama-stream-chunk` with it, and resolves the `ollama-chat-stream` invoke with the final content once the stream ends — there is no separate "done" event, so a stale or late chunk can never land in another reply. `stopGeneration()` calls `ollama-abort(id)`; the reply keeps its partial text and is marked `stopped`. While a reply streams, `sendMessage` queues new requests (screenshot shortcut, Notes, Summarize, quick actions; at most `MAX_QUEUED_REQUESTS` = 3, oldest dropped) and they run in order afterwards with the settings of that moment. Auto mode is not queued: `Overlay` returns `false` so Auto retries its delta on the next tick. Clear chat aborts the active request and drops the queue.
+
+### Reasoning (thinking models)
+`settings.reasoning` (default **on**) leaves `think` out of chat requests, so thinking models (capability `thinking` in `/api/tags`, e.g. qwen3) reason and the reasoning streams separately into `ChatMessage.thinking`, shown live in a collapsible block above the reply. Off sends `think: false`. Never send `think: true`: Ollama rejects it for models without the capability. Background calls (file names, progressive summary) always send `think: false` — reasoning there only delays them and blocks Ollama for the chat.
+
+### Markdown replies
+Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm` + `rehype-highlight`; styles in `globals.css` under `.response-content`). For the zero-network rule nothing in a reply may load or navigate: raw HTML stays disabled (react-markdown default — do not add `rehype-raw`), links render as text with the URL as a tooltip, and images become `[image: alt]`. Code blocks get a copy button. User messages stay plain text.
 
 ### Prompt presets
 `src/lib/presets.ts` defines the `Preset` built-ins and pure CRUD helpers (`createPreset`, `duplicatePreset`, `renamePreset`, `updatePreset`, `deletePreset`, `restorePreset`). Built-ins are recognized by id: they can be edited and restored but `deletePreset` is a no-op for them, and `mergePresets` re-adds any that are missing from the stored list (an edited stored copy wins). `getActivePreset(settings)` feeds `useGhostAI` (system prompt) and `Overlay` (Suggest reply/Auto template and the quick-action pills, which replace the old fixed Summarize / Suggest reply / Next steps). The preset editor in `Settings.tsx` edits a local copy, committed only on Save; the title-bar preset dropdown calls `updateSettings({ activePresetId })`.
@@ -318,7 +331,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **306 tests** across 18 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **344 tests** across 19 test files under `src/__tests__/`.
 
 ### Running tests
 
@@ -343,6 +356,7 @@ npm run test:watch   # Watch mode
 - No secrets, API keys, tokens, or private data in the codebase
 - No external network calls except to `localhost` (Ollama) and `huggingface.co` (model download, first use of each model only)
 - Settings (incl. prompts) are stored only locally in `userData/settings.json`; `whisper-load` only accepts model ids from `WHISPER_MODELS`
+- **Ollama must be local**: `isLocalOllamaUrl` (`src/lib/ollama.ts`) accepts only `localhost`/`*.localhost`, `127.0.0.0/8` and `::1` over http(s). The main process checks it on every Ollama request (`blockedOllamaRequest`), Settings won't save another URL, and `mergeSettings` resets a stored one. **Cloud models** (`remote_host` in `/api/tags`, or a `-cloud`/`:cloud` name) are proxied by the local Ollama to ollama.com, so they are hidden from the model list and refused by the main process
 - Permission handler restricted to media/microphone/screen only
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false` (sandbox disabled only because Whisper needs main-process Node access)
 - `package.json` has `"private": true` to prevent accidental npm publish

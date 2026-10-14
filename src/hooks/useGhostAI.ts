@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { ChatMessage, OllamaMessage, OllamaModel, Settings } from '../types'
+import type { ChatMessage, OllamaMessage, OllamaModel, Settings, StreamResult } from '../types'
 import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage } from '../lib/context'
 import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
 import { mergeSettings } from '../lib/settings'
@@ -30,20 +30,46 @@ export const DEFAULT_SETTINGS: Settings = {
   transcriptionLanguage: DEFAULT_TRANSCRIPTION_LANGUAGE,
   presets: defaultPresets(),
   activePresetId: DEFAULT_PRESET_ID,
+  reasoning: true,
 }
+
+// Requests made while a reply is streaming wait here (screenshot shortcut,
+// notes, Summarize...). Beyond this many, the oldest waiting one is dropped.
+export const MAX_QUEUED_REQUESTS = 3
+
+interface QueuedRequest {
+  content: string
+  screenshot?: string
+  options?: SendMessageOptions
+}
+
+// The reply currently streaming. Chunks for any other requestId are ignored.
+interface ActiveRequest {
+  requestId: string
+  assistantId: string
+  content: string
+  thinking: string
+}
+
+const CONNECTION_ERROR = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i
 
 export function useGhostAI() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
+  // Why Ollama can't be used (e.g. a non-local URL); null when fine
+  const [connectionError, setConnectionError] = useState<string | null>(null)
   const [models, setModels] = useState<OllamaModel[]>([])
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   // False until the settings saved on disk have been read. Nothing is written
   // back before that, so the defaults never overwrite the stored settings.
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const [currentStreamContent, setCurrentStreamContent] = useState('')
-  const streamContentRef = useRef('')
+  const [queue, setQueue] = useState<QueuedRequest[]>([])
+  const activeRef = useRef<ActiveRequest | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
+  // Read at request time, so queued requests use the settings of that moment
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
 
   // Load persisted settings once, merged over the defaults
   useEffect(() => {
@@ -68,17 +94,12 @@ export function useGhostAI() {
       .catch(err => console.error('Failed to save settings:', err))
   }, [settings, settingsLoaded])
 
-  // Check Ollama connection
-  const checkConnection = useCallback(async () => {
-    const result = await window.ghostAPI.ollamaCheck(settings.ollamaBaseUrl)
+  // Connection + model list in one request
+  const refreshStatus = useCallback(async () => {
+    const result = await window.ghostAPI.ollamaStatus(settings.ollamaBaseUrl)
     setIsConnected(result.connected)
-    return result.connected
-  }, [settings.ollamaBaseUrl])
-
-  // Fetch available models
-  const fetchModels = useCallback(async () => {
-    const result = await window.ghostAPI.ollamaListModels(settings.ollamaBaseUrl)
-    if (result.success) {
+    setConnectionError(result.error ?? null)
+    if (result.connected) {
       setModels(result.models)
       // Auto-select first model if current selection is not available. Wait
       // for the stored settings: until then selectedModel is just the default.
@@ -86,69 +107,44 @@ export function useGhostAI() {
         setSettings(prev => ({ ...prev, selectedModel: result.models[0].name }))
       }
     }
-    return result.models
+    return result
   }, [settings.ollamaBaseUrl, settings.selectedModel, settingsLoaded])
 
-  // Initialize connection check
+  const checkConnection = useCallback(async () => (await refreshStatus()).connected, [refreshStatus])
+  const fetchModels = useCallback(async () => (await refreshStatus()).models, [refreshStatus])
+
   useEffect(() => {
-    checkConnection().then(connected => {
-      if (connected) fetchModels()
-    })
-
-    const interval = setInterval(() => {
-      checkConnection().then(connected => {
-        if (connected) fetchModels()
-      })
-    }, 10000)
-
+    refreshStatus()
+    const interval = setInterval(refreshStatus, 10000)
     return () => clearInterval(interval)
-  }, [checkConnection, fetchModels])
+  }, [refreshStatus])
 
-  // Set up stream event listeners
-  useEffect(() => {
-    const removeChunkListener = window.ghostAPI.onStreamChunk((chunk: string) => {
-      streamContentRef.current += chunk
-      setCurrentStreamContent(streamContentRef.current)
-    })
-
-    const removeDoneListener = window.ghostAPI.onStreamDone((fullResponse: string) => {
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1]
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) return prev
-        return [...prev.slice(0, -1), { ...lastMsg, content: fullResponse, isStreaming: false }]
-      })
-      setIsStreaming(false)
-      setCurrentStreamContent('')
-      streamContentRef.current = ''
-    })
-
-    return () => {
-      removeChunkListener()
-      removeDoneListener()
-    }
+  const updateMessage = useCallback((id: string, patch: Partial<ChatMessage>) => {
+    setMessages(prev => prev.map(m => (m.id === id ? { ...m, ...patch } : m)))
   }, [])
 
-  // Update streaming message content
+  // Stream chunks, matched to the active request by id
   useEffect(() => {
-    if (isStreaming && currentStreamContent) {
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1]
-        if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.isStreaming) return prev
-        return [...prev.slice(0, -1), { ...lastMsg, content: currentStreamContent }]
+    return window.ghostAPI.onStreamChunk(chunk => {
+      const active = activeRef.current
+      if (!active || chunk.requestId !== active.requestId) return
+      active.content += chunk.content
+      active.thinking += chunk.thinking
+      updateMessage(active.assistantId, {
+        content: active.content,
+        ...(active.thinking ? { thinking: active.thinking } : {}),
       })
-    }
-  }, [currentStreamContent, isStreaming])
+    })
+  }, [updateMessage])
 
-  // Keep messagesRef in sync so sendMessage always has latest messages
+  // Keep messagesRef in sync so requests always see the latest history
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
 
-  // Send message
-  const sendMessage = useCallback(async (content: string, screenshot?: string, options?: SendMessageOptions) => {
-    if (!content.trim() && !screenshot) return
-    if (isStreaming) return
-
+  // Start one streaming request. Callers make sure nothing else is streaming.
+  const startRequest = useCallback(async ({ content, screenshot, options }: QueuedRequest) => {
+    const current = settingsRef.current
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -156,7 +152,6 @@ export function useGhostAI() {
       timestamp: Date.now(),
       screenshot,
     }
-
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
@@ -165,17 +160,17 @@ export function useGhostAI() {
       isStreaming: true,
       ...(options?.kind ? { kind: options.kind } : {}),
     }
+    const active: ActiveRequest = { requestId: crypto.randomUUID(), assistantId: assistantMessage.id, content: '', thinking: '' }
+    activeRef.current = active
 
     // Read current messages from ref (always up-to-date, no stale closure)
     const currentMessages = messagesRef.current
     setMessages(prev => [...prev, userMessage, assistantMessage])
     setIsStreaming(true)
-    streamContentRef.current = ''
-    setCurrentStreamContent('')
 
     // System prompt + transcript context go first; the chat history gets
     // whatever budget is left, newest messages first.
-    const systemPrompt = options?.systemPrompt ?? getActivePreset(settings).systemPrompt
+    const systemPrompt = options?.systemPrompt ?? getActivePreset(current).systemPrompt
     const systemMessages: OllamaMessage[] = [{ role: 'system', content: systemPrompt }]
     const transcriptMsg = transcriptSystemMessage(options?.context ?? '')
     if (transcriptMsg) systemMessages.push(transcriptMsg)
@@ -198,34 +193,73 @@ export function useGhostAI() {
     }
 
     const systemTokens = systemMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
-    const historyBudget = promptBudget(settings.contextLength) - systemTokens
+    const historyBudget = promptBudget(current.contextLength) - systemTokens
     const ollamaMessages = [...systemMessages, ...fitHistoryToBudget(history, historyBudget)]
 
-    // Use streaming
-    const result = await window.ghostAPI.ollamaChatStream({
-      model: settings.selectedModel,
-      messages: ollamaMessages,
-      baseUrl: settings.ollamaBaseUrl,
-      options: { num_ctx: settings.contextLength },
-    })
-
-    if (!result.success) {
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1]
-        if (!lastMsg || lastMsg.role !== 'assistant') return prev
-        const err = result.error || 'Unknown error'
-        // Only blame connectivity for actual connection failures. A 4xx from
-        // Ollama means it IS reachable but rejected the request (bad model,
-        // context too large, etc.) — show that reason instead of "is it running?".
-        const isConnectionIssue = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i.test(err)
-        const content = isConnectionIssue
-          ? `Error: ${err}\n\nIs Ollama running at ${settings.ollamaBaseUrl}? Start it with \`ollama serve\`.`
-          : `Error: ${err}`
-        return [...prev.slice(0, -1), { ...lastMsg, content, isStreaming: false }]
+    let result: StreamResult
+    try {
+      result = await window.ghostAPI.ollamaChatStream({
+        requestId: active.requestId,
+        model: current.selectedModel,
+        messages: ollamaMessages,
+        baseUrl: current.ollamaBaseUrl,
+        options: { num_ctx: current.contextLength },
+        ...(current.reasoning ? {} : { think: false }),
       })
-      setIsStreaming(false)
+    } catch (err: any) {
+      result = { success: false, error: err?.message || String(err) }
     }
-  }, [settings, isStreaming])
+
+    const text = result.content ?? active.content
+    const thinking = (result.thinking ?? active.thinking) || undefined
+    if (result.success) {
+      updateMessage(active.assistantId, {
+        content: text,
+        thinking,
+        isStreaming: false,
+        ...(result.aborted ? { stopped: true } : {}),
+      })
+    } else {
+      const err = result.error || 'Unknown error'
+      // Only blame connectivity for actual connection failures. A 4xx from
+      // Ollama means it IS reachable but rejected the request (bad model,
+      // context too large, etc.) — show that reason instead of "is it running?".
+      const message = CONNECTION_ERROR.test(err)
+        ? `Error: ${err}\n\nIs Ollama running at ${current.ollamaBaseUrl}? Start it with \`ollama serve\`.`
+        : `Error: ${err}`
+      updateMessage(active.assistantId, {
+        content: text ? `${text}\n\n${message}` : message,
+        thinking,
+        isStreaming: false,
+      })
+    }
+    if (activeRef.current === active) activeRef.current = null
+    setIsStreaming(false)
+  }, [updateMessage])
+
+  // Send now, or queue it if a reply is still streaming
+  const sendMessage = useCallback(async (content: string, screenshot?: string, options?: SendMessageOptions) => {
+    if (!content.trim() && !screenshot) return
+    if (activeRef.current) {
+      setQueue(prev => [...prev, { content, screenshot, options }].slice(-MAX_QUEUED_REQUESTS))
+      return
+    }
+    await startRequest({ content, screenshot, options })
+  }, [startRequest])
+
+  // Run the next queued request once the current reply is done
+  useEffect(() => {
+    if (isStreaming || activeRef.current || queue.length === 0) return
+    const [next, ...rest] = queue
+    setQueue(rest)
+    startRequest(next)
+  }, [isStreaming, queue, startRequest])
+
+  // Stop the reply that is streaming; queued requests still run
+  const stopGeneration = useCallback(() => {
+    const active = activeRef.current
+    if (active) window.ghostAPI.ollamaAbort(active.requestId)
+  }, [])
 
   // Quick actions
   const askSuggestion = useCallback((context: string) => {
@@ -246,9 +280,12 @@ export function useGhostAI() {
     }
   }, [sendMessage])
 
+  // Clearing also drops waiting requests and stops the one in progress
   const clearChat = useCallback(() => {
+    setQueue([])
+    stopGeneration()
     setMessages([])
-  }, [])
+  }, [stopGeneration])
 
   const updateSettings = useCallback((newSettings: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }))
@@ -257,11 +294,14 @@ export function useGhostAI() {
   return {
     messages,
     isStreaming,
+    queuedCount: queue.length,
     isConnected,
+    connectionError,
     models,
     settings,
     settingsLoaded,
     sendMessage,
+    stopGeneration,
     askSuggestion,
     analyzeScreenshot,
     analyzeScreenshotCrop,

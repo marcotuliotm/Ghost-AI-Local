@@ -56,6 +56,8 @@ export function useTranscriptContext(transcript: string, settings: Settings, isC
       model: settings.selectedModel,
       baseUrl: settings.ollamaBaseUrl,
       options: { num_ctx: settings.contextLength },
+      // Background bookkeeping: reasoning would only delay it (and block Ollama)
+      think: false,
       messages: [
         {
           role: 'system',

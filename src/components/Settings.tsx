@@ -15,6 +15,7 @@ import {
   TRANSCRIPTION_LANGUAGES,
   WHISPER_MODELS,
 } from '../lib/whisper'
+import { isLocalOllamaUrl, supportsThinking } from '../lib/ollama'
 
 const CONTEXT_LENGTH_OPTIONS = [4096, 8192, 16384, 32768]
 
@@ -48,7 +49,12 @@ export function SettingsPanel({
     setLocalSettings(settings)
   }, [settings])
 
+  // Only a local Ollama is allowed; the main process enforces it too.
+  const urlIsLocal = isLocalOllamaUrl(localSettings.ollamaBaseUrl)
+  const selectedModelInfo = models.find(m => m.name === localSettings.selectedModel)
+
   const handleSave = () => {
+    if (!urlIsLocal) return
     onUpdateSettings(localSettings)
     onBack()
   }
@@ -99,7 +105,9 @@ export function SettingsPanel({
         </div>
         <button
           onClick={handleSave}
-          className="px-3 py-1 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover text-xs text-white transition-colors no-drag"
+          disabled={!urlIsLocal}
+          title={urlIsLocal ? undefined : 'The Ollama URL must be local'}
+          className="px-3 py-1 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover text-xs text-white transition-colors no-drag disabled:opacity-40 disabled:hover:bg-ghost-accent"
         >
           Save
         </button>
@@ -128,6 +136,15 @@ export function SettingsPanel({
             onChange={v => setLocalSettings(prev => ({ ...prev, ollamaBaseUrl: v }))}
             placeholder="http://localhost:11434"
           />
+          {urlIsLocal ? (
+            <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+              Must be on this machine (localhost, 127.0.0.1 or ::1). Cloud models are hidden.
+            </p>
+          ) : (
+            <p className="text-[9px] text-ghost-error mt-1" role="alert">
+              Only a local Ollama is allowed (localhost, 127.0.0.1 or ::1), so no data leaves this machine.
+            </p>
+          )}
         </Section>
 
         {/* Model Selection */}
@@ -168,6 +185,23 @@ export function SettingsPanel({
             </select>
             <p className="text-[9px] text-ghost-text-muted opacity-60">
               Tokens the model sees per request (chat history + transcript). Larger = more memory and slower replies. Older transcript is summarized automatically to fit.
+            </p>
+            <label className="flex items-center gap-2 pt-1 text-xs text-ghost-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={localSettings.reasoning}
+                onChange={e => {
+                  const reasoning = e.target.checked
+                  setLocalSettings(prev => ({ ...prev, reasoning }))
+                }}
+                className="accent-ghost-accent"
+              />
+              Reasoning
+            </label>
+            <p className="text-[9px] text-ghost-text-muted opacity-60">
+              {selectedModelInfo && !supportsThinking(selectedModelInfo)
+                ? 'This model does not reason, so this has no effect on it.'
+                : 'Thinking models (e.g. qwen3) reason before answering: better answers, but much slower. The reasoning is shown above the reply. Turn off for fast suggestions.'}
             </p>
           </div>
         </Section>

@@ -30,6 +30,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
             <ShortcutRow label="Crop screen region & analyze" shortcut="Cmd+Shift+X" />
             <ShortcutRow label="Focus text input" shortcut="Cmd+Shift+A" />
             <ShortcutRow label="Clear text input" shortcut="Esc" />
+            <ShortcutRow label="Stop generating (while a reply streams)" shortcut="Esc" />
             <ShortcutRow label="Send message" shortcut="Enter" />
           </div>
         </Section>
@@ -196,6 +197,32 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Clear</span>}
               label="Clear"
               description="Clears the accumulated transcription"
+            />
+          </div>
+        </Section>
+
+        {/* Chat */}
+        <Section title="Chat">
+          <div className="space-y-2 text-[10px] text-ghost-text-muted">
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-error/80 text-white">■</span>}
+              label="Stop"
+              description="Replaces Send while a reply is generating. Stops it and keeps what was written so far (Esc does the same)"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Queue</span>}
+              label="Queued requests"
+              description="Screenshots, Notes, Summarize and quick actions requested while a reply is generating wait their turn (up to 3) instead of being dropped"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Reasoning</span>}
+              label="Reasoning"
+              description="Thinking models (e.g. qwen3) reason before answering; the reasoning is shown above the reply and collapses when the answer starts. Turn it off in Settings for faster replies"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Copy</span>}
+              label="Formatted replies"
+              description="Replies are rendered as Markdown with highlighted code; hover a code block to copy it. Links and images are shown as text only, nothing is loaded from the internet"
             />
           </div>
         </Section>

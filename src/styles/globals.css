@@ -51,6 +51,7 @@ html, body, #root {
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
+  height: 4px; /* horizontal bars (wide code blocks, tables) */
 }
 
 ::-webkit-scrollbar-track {
@@ -110,6 +111,62 @@ html, body, #root {
 
 .response-content blockquote {
   @apply border-l-2 border-ghost-accent pl-2 my-1.5 text-xs opacity-80;
+}
+
+.response-content ul { list-style: disc; }
+.response-content ol { list-style: decimal; }
+
+/* GFM task lists (meeting-notes action items) */
+.response-content li.task-list-item { list-style: none; margin-left: -1rem; }
+.response-content li.task-list-item input { margin-right: 0.35rem; vertical-align: middle; }
+
+.response-content table {
+  @apply text-[10px] border-collapse;
+}
+
+.response-content th,
+.response-content td {
+  @apply px-1.5 py-0.5 text-left;
+  border: 0.5px solid rgb(var(--separator) / 0.15);
+}
+
+.response-content hr {
+  @apply my-2;
+  border: 0;
+  border-top: 0.5px solid rgb(var(--separator) / 0.15);
+}
+
+/* Syntax highlighting (rehype-highlight / highlight.js classes), following the
+   system light/dark appearance */
+.response-content .hljs-keyword,
+.response-content .hljs-selector-tag,
+.response-content .hljs-literal { color: rgb(173 61 164); }
+.response-content .hljs-string,
+.response-content .hljs-regexp { color: rgb(196 26 22); }
+.response-content .hljs-number { color: rgb(28 0 207); }
+.response-content .hljs-comment { color: rgb(var(--label) / 0.45); font-style: italic; }
+.response-content .hljs-title,
+.response-content .hljs-title.function_ { color: rgb(50 109 116); }
+.response-content .hljs-built_in,
+.response-content .hljs-type { color: rgb(112 61 170); }
+.response-content .hljs-attr,
+.response-content .hljs-attribute,
+.response-content .hljs-property { color: rgb(129 95 3); }
+
+@media (prefers-color-scheme: dark) {
+  .response-content .hljs-keyword,
+  .response-content .hljs-selector-tag,
+  .response-content .hljs-literal { color: rgb(252 95 163); }
+  .response-content .hljs-string,
+  .response-content .hljs-regexp { color: rgb(252 106 93); }
+  .response-content .hljs-number { color: rgb(208 191 105); }
+  .response-content .hljs-title,
+  .response-content .hljs-title.function_ { color: rgb(103 183 164); }
+  .response-content .hljs-built_in,
+  .response-content .hljs-type { color: rgb(208 168 255); }
+  .response-content .hljs-attr,
+  .response-content .hljs-attribute,
+  .response-content .hljs-property { color: rgb(253 143 63); }
 }
 
 /* Typing animation */

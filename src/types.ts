@@ -11,20 +11,21 @@ export interface GhostAPI {
     think?: boolean
   }) => Promise<{ success: boolean; message?: OllamaMessage; error?: string }>
 
+  // Chunks arrive through onStreamChunk tagged with `requestId`; the promise
+  // resolves once the stream ends (aborted: stopped with ollamaAbort).
   ollamaChatStream: (payload: {
+    requestId: string
     model: string
     messages: OllamaMessage[]
     baseUrl: string
     options?: OllamaOptions
-  }) => Promise<{ success: boolean; message?: OllamaMessage; error?: string }>
+    think?: boolean // false turns reasoning off; omitted = model default
+  }) => Promise<StreamResult>
 
-  ollamaListModels: (baseUrl: string) => Promise<{
-    success: boolean
-    models: OllamaModel[]
-    error?: string
-  }>
+  ollamaAbort: (requestId: string) => Promise<{ aborted: boolean }>
 
-  ollamaCheck: (baseUrl: string) => Promise<{ connected: boolean }>
+  // Connection + local models (cloud models filtered out) in one call
+  ollamaStatus: (baseUrl: string) => Promise<{ connected: boolean; models: OllamaModel[]; error?: string }>
 
   // Screenshot
   captureScreenshot: () => Promise<string | null>
@@ -70,8 +71,7 @@ export interface GhostAPI {
   copyText: (text: string) => Promise<boolean>
 
   // Events
-  onStreamChunk: (callback: (chunk: string) => void) => () => void
-  onStreamDone: (callback: (fullResponse: string) => void) => () => void
+  onStreamChunk: (callback: (chunk: StreamChunk) => void) => () => void
   onScreenshotCaptured: (callback: (dataUrl: string) => void) => () => void
   onFocusInput: (callback: () => void) => () => void
   onOpenSettings: (callback: () => void) => () => void
@@ -79,6 +79,20 @@ export interface GhostAPI {
 }
 
 export type SaveFormat = 'txt' | 'md'
+
+export interface StreamChunk {
+  requestId: string
+  content: string
+  thinking: string
+}
+
+export interface StreamResult {
+  success: boolean
+  content?: string
+  thinking?: string
+  aborted?: boolean
+  error?: string
+}
 
 export interface OllamaMessage {
   role: 'system' | 'user' | 'assistant'
@@ -96,6 +110,7 @@ export interface OllamaModel {
   size: number
   digest: string
   modified_at: string
+  capabilities?: string[] // e.g. 'thinking', 'vision'
 }
 
 export interface ChatMessage {
@@ -105,6 +120,8 @@ export interface ChatMessage {
   timestamp: number
   isStreaming?: boolean
   screenshot?: string
+  thinking?: string // the model's reasoning, shown collapsed above the reply
+  stopped?: boolean // generation was stopped by the user
   kind?: 'notes' // assistant reply holding meeting notes (offers Save .md)
 }
 
@@ -133,6 +150,7 @@ export interface Settings {
   transcriptionLanguage: string // 'auto' or a Whisper language name ('english', 'portuguese', ...)
   presets: Preset[] // prompt presets (built-ins first)
   activePresetId: string // supplies the system prompt, Suggest reply template and quick actions
+  reasoning: boolean // let thinking models reason (default true); false sends think: false
 }
 
 declare global {
