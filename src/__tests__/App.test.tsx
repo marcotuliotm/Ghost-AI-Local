@@ -165,4 +165,16 @@ describe('App', () => {
       expect(screen.queryByTestId('compact-view')).toBeNull()
     })
   })
+
+  describe('documents', () => {
+    it('should open the documents panel from the title bar', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      fireEvent.click(screen.getByTitle('Documents'))
+      expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
+      fireEvent.click(screen.getByTitle('Back'))
+      expect(screen.queryByText('No documents yet.')).toBeNull()
+    })
+  })
 })

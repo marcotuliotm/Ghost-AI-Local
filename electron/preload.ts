@@ -55,6 +55,15 @@ const api = {
   setCompactMode: (enabled: boolean) =>
     ipcRenderer.send('set-compact-mode', enabled),
 
+  // Documents (local retrieval)
+  docsList: () => ipcRenderer.invoke('docs-list'),
+  docsAdd: (opts: { baseUrl: string; embeddingModel: string }) => ipcRenderer.invoke('docs-add', opts),
+  docsRemove: (id: string) => ipcRenderer.invoke('docs-remove', id),
+  docsSetEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('docs-set-enabled', id, enabled),
+  docsReindex: (opts: { baseUrl: string; embeddingModel: string }) => ipcRenderer.invoke('docs-reindex', opts),
+  docsSearch: (opts: { query: string; baseUrl: string; embeddingModel: string; k?: number; maxTokens?: number }) =>
+    ipcRenderer.invoke('docs-search', opts),
+
   // First-run setup
   getScreenPermission: () => ipcRenderer.invoke('get-screen-permission'),
   openPrivacySettings: (kind: 'microphone' | 'screen') => ipcRenderer.invoke('open-privacy-settings', kind),

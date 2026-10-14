@@ -210,4 +210,11 @@ describe('MessageBubble', () => {
       expect(screen.getByText('Stopped')).toBeInTheDocument()
     })
   })
+
+  describe('document sources', () => {
+    it('should name the documents an answer drew on', () => {
+      render(<MessageBubble message={{ id: 's', role: 'assistant', content: 'You fit.', timestamp: Date.now(), sources: ['cv.pdf', 'job.md'] }} />)
+      expect(screen.getByText('From: cv.pdf, job.md')).toBeInTheDocument()
+    })
+  })
 })

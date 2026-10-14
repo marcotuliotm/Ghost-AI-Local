@@ -32,7 +32,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'electron-store', '@huggingface/transformers', 'onnxruntime-node'],
+              external: ['electron', 'electron-store', '@huggingface/transformers', 'onnxruntime-node', 'unpdf'],
               output: {
                 format: 'cjs',
               },
