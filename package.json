@@ -43,7 +43,10 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

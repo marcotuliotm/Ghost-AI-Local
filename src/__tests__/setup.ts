@@ -14,9 +14,9 @@ Element.prototype.scrollIntoView = vi.fn()
 // Mock window.ghostAPI
 const createMockGhostAPI = () => ({
   ollamaChat: vi.fn().mockResolvedValue({ success: true, message: { role: 'assistant', content: 'test response' } }),
-  ollamaChatStream: vi.fn().mockResolvedValue({ success: true, message: { role: 'assistant', content: 'test response' } }),
-  ollamaListModels: vi.fn().mockResolvedValue({ success: true, models: [{ name: 'gemma4:latest', size: 1000000, digest: 'abc', modified_at: '2024-01-01' }] }),
-  ollamaCheck: vi.fn().mockResolvedValue({ connected: true }),
+  ollamaChatStream: vi.fn().mockResolvedValue({ success: true, content: 'test response', thinking: '' }),
+  ollamaAbort: vi.fn().mockResolvedValue({ aborted: true }),
+  ollamaStatus: vi.fn().mockResolvedValue({ connected: true, models: [{ name: 'gemma4:latest', size: 1000000, digest: 'abc', modified_at: '2024-01-01' }] }),
   captureScreenshot: vi.fn().mockResolvedValue(null),
   captureScreenshotCrop: vi.fn().mockResolvedValue(null),
   minimizeWindow: vi.fn(),
@@ -40,7 +40,6 @@ const createMockGhostAPI = () => ({
   onWhisperProgress: vi.fn().mockReturnValue(() => {}),
   onEmbedProgress: vi.fn().mockReturnValue(() => {}),
   onStreamChunk: vi.fn().mockReturnValue(() => {}),
-  onStreamDone: vi.fn().mockReturnValue(() => {}),
   onScreenshotCaptured: vi.fn().mockReturnValue(() => {}),
   onFocusInput: vi.fn().mockReturnValue(() => {}),
   onOpenSettings: vi.fn().mockReturnValue(() => {}),

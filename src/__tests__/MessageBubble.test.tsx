@@ -147,4 +147,67 @@ describe('MessageBubble', () => {
       expect(screen.queryByText('Save .md')).toBeNull()
     })
   })
+
+  describe('markdown', () => {
+    const reply = (content: string, extra: Partial<ChatMessage> = {}): ChatMessage =>
+      ({ id: 'r', role: 'assistant', content, timestamp: Date.now(), ...extra })
+
+    it('should render headings, lists, tables and task lists', () => {
+      const { container } = render(<MessageBubble message={reply(
+        '## Plan\n\n- one\n- **two**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [ ] send draft — A',
+      )} />)
+      expect(screen.getByRole('heading', { name: 'Plan' })).toBeInTheDocument()
+      expect(container.querySelector('strong')?.textContent).toBe('two')
+      expect(screen.getByRole('table')).toBeInTheDocument()
+      expect(screen.getByRole('checkbox')).not.toBeChecked()
+    })
+
+    it('should highlight code and copy a code block', async () => {
+      const { container } = render(<MessageBubble message={reply('```js\nconst x = 1\n```')} />)
+      expect(container.querySelector('code.hljs')).toBeInTheDocument()
+      fireEvent.click(screen.getByTitle('Copy code'))
+      await waitFor(() => expect(window.ghostAPI.copyText).toHaveBeenCalledWith('const x = 1'))
+      expect(await screen.findByText('Copied!')).toBeInTheDocument()
+    })
+
+    it('should never render live links, images or raw HTML', () => {
+      const { container } = render(<MessageBubble message={reply(
+        '[site](https://example.com) ![tracker](https://example.com/pixel.png) <img src="https://example.com/x.png">',
+      )} />)
+      expect(container.querySelector('a')).toBeNull()
+      expect(container.querySelector('img')).toBeNull()
+      expect(screen.getByText('site')).toHaveAttribute('title', 'https://example.com')
+      expect(screen.getByText('[image: tracker]')).toBeInTheDocument()
+    })
+
+    it('should keep user messages as typed', () => {
+      render(<MessageBubble message={{ id: 'u', role: 'user', content: '## not a heading', timestamp: Date.now() }} />)
+      expect(screen.queryByRole('heading')).toBeNull()
+      expect(screen.getByText('## not a heading')).toBeInTheDocument()
+    })
+  })
+
+  describe('reasoning and stop', () => {
+    const base: ChatMessage = { id: 'r', role: 'assistant', content: '', timestamp: Date.now() }
+
+    it('should show live reasoning while the model thinks', () => {
+      const { container } = render(<MessageBubble message={{ ...base, isStreaming: true, thinking: 'Weighing options' }} />)
+      expect(screen.getByText('Reasoning...')).toBeInTheDocument()
+      expect(screen.getByText('Weighing options')).toBeInTheDocument()
+      expect(container.querySelector('details')).toHaveAttribute('open')
+      expect(screen.queryByText('Thinking')).toBeNull()
+    })
+
+    it('should collapse the reasoning once the answer arrives', () => {
+      const { container } = render(<MessageBubble message={{ ...base, content: 'Answer', thinking: 'Weighing options' }} />)
+      expect(screen.getByText('Reasoning')).toBeInTheDocument()
+      expect(container.querySelector('details')).not.toHaveAttribute('open')
+      expect(screen.getByText('Answer')).toBeInTheDocument()
+    })
+
+    it('should mark a stopped reply', () => {
+      render(<MessageBubble message={{ ...base, content: 'Partial', stopped: true }} />)
+      expect(screen.getByText('Stopped')).toBeInTheDocument()
+    })
+  })
 })

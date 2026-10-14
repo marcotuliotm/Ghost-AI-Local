@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useGhostAI } from '../hooks/useGhostAI'
+import { MAX_QUEUED_REQUESTS, useGhostAI } from '../hooks/useGhostAI'
 import { getActivePreset } from '../lib/presets'
 
 describe('useGhostAI', () => {
@@ -32,20 +32,18 @@ describe('useGhostAI', () => {
     it('should check connection on mount', async () => {
       renderHook(() => useGhostAI())
       await waitFor(() => {
-        expect(window.ghostAPI.ollamaCheck).toHaveBeenCalledWith('http://localhost:11434')
+        expect(window.ghostAPI.ollamaStatus).toHaveBeenCalledWith('http://localhost:11434')
       })
     })
 
     it('should set up stream listeners on mount', () => {
       renderHook(() => useGhostAI())
       expect(window.ghostAPI.onStreamChunk).toHaveBeenCalled()
-      expect(window.ghostAPI.onStreamDone).toHaveBeenCalled()
     })
   })
 
   describe('checkConnection', () => {
     it('should set isConnected to true when Ollama responds', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => {
         expect(result.current.isConnected).toBe(true)
@@ -53,7 +51,7 @@ describe('useGhostAI', () => {
     })
 
     it('should set isConnected to false when Ollama is down', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: false })
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: false, models: [] })
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => {
         expect(result.current.isConnected).toBe(false)
@@ -67,8 +65,7 @@ describe('useGhostAI', () => {
         { name: 'gemma4:latest', size: 8000000000, digest: 'abc', modified_at: '2024-01-01' },
         { name: 'llama3:8b', size: 4000000000, digest: 'def', modified_at: '2024-01-02' },
       ]
-      window.ghostAPI.ollamaListModels = vi.fn().mockResolvedValue({ success: true, models: mockModels })
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: true, models: mockModels })
 
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => {
@@ -81,8 +78,7 @@ describe('useGhostAI', () => {
       const mockModels = [
         { name: 'llama3:8b', size: 4000000000, digest: 'def', modified_at: '2024-01-02' },
       ]
-      window.ghostAPI.ollamaListModels = vi.fn().mockResolvedValue({ success: true, models: mockModels })
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: true, models: mockModels })
 
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => {
@@ -93,7 +89,6 @@ describe('useGhostAI', () => {
 
   describe('sendMessage', () => {
     it('should add user and assistant messages', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -109,7 +104,6 @@ describe('useGhostAI', () => {
     })
 
     it('should call ollamaChatStream with correct payload', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -131,7 +125,6 @@ describe('useGhostAI', () => {
     })
 
     it('should add screenshot annotation to content', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -146,7 +139,6 @@ describe('useGhostAI', () => {
     })
 
     it('should include images array in Ollama payload when screenshot is attached', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -165,7 +157,6 @@ describe('useGhostAI', () => {
     })
 
     it('should strip data:image prefix from base64 before sending to Ollama', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -183,22 +174,13 @@ describe('useGhostAI', () => {
     })
 
     it('should attach the image only to the current message, not to older screenshots in history', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
 
-      // Grab the stream-done callback registered on mount so we can simulate a
-      // turn finishing (which clears isStreaming and unblocks the next send).
-      const onDoneMock = window.ghostAPI.onStreamDone as ReturnType<typeof vi.fn>
-      const emitDone = onDoneMock.mock.calls.at(-1)?.[0] as (r: string) => void
-
-      // First turn: send a screenshot, then finish the stream.
+      // First turn: send a screenshot (the mocked stream finishes right away).
       await act(async () => {
         await result.current.sendMessage('First shot', 'data:image/png;base64,firstImg')
-      })
-      await act(async () => {
-        emitDone('first answer')
       })
 
       // Second turn: send another screenshot. The first image must NOT be
@@ -217,7 +199,6 @@ describe('useGhostAI', () => {
     })
 
     it('should not include images field when no screenshot is attached', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
 
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -246,7 +227,6 @@ describe('useGhostAI', () => {
     })
 
     it('should skip when already streaming', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       window.ghostAPI.ollamaChatStream = vi.fn().mockImplementation(() => new Promise(() => {})) // never resolves
       const { result } = renderHook(() => useGhostAI())
 
@@ -266,7 +246,6 @@ describe('useGhostAI', () => {
     })
 
     it('should handle error response', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({
         success: false,
         error: 'Connection refused',
@@ -287,7 +266,6 @@ describe('useGhostAI', () => {
     })
 
     it('should include conversation context (last 20 messages)', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       // Use error response so sendMessage's error branch resets isStreaming
       // This allows the second sendMessage call to proceed
       window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({
@@ -376,7 +354,6 @@ describe('useGhostAI', () => {
 
   describe('clearChat', () => {
     it('should clear all messages', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.isConnected).toBe(true))
 
@@ -435,7 +412,6 @@ describe('useGhostAI', () => {
 
   describe('analyzeScreenshot', () => {
     it('should capture screenshot and send message', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       window.ghostAPI.captureScreenshot = vi.fn().mockResolvedValue('data:image/png;base64,screenshot')
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -463,7 +439,6 @@ describe('useGhostAI', () => {
 
   describe('analyzeScreenshotCrop', () => {
     it('should capture cropped screenshot and send message', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       window.ghostAPI.captureScreenshotCrop = vi.fn().mockResolvedValue('data:image/png;base64,cropped')
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -489,7 +464,6 @@ describe('useGhostAI', () => {
     })
 
     it('should include cropped image in Ollama payload', async () => {
-      window.ghostAPI.ollamaCheck = vi.fn().mockResolvedValue({ connected: true })
       window.ghostAPI.captureScreenshotCrop = vi.fn().mockResolvedValue('data:image/png;base64,croppedBase64Data')
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.isConnected).toBe(true))
@@ -573,11 +547,6 @@ describe('useGhostAI', () => {
       await act(async () => {
         await result.current.sendMessage('Earlier question')
       })
-      act(() => {
-        // Finish the first stream so the next send isn't ignored
-        const done = (window.ghostAPI.onStreamDone as any).mock.calls.at(-1)[0]
-        done('earlier answer')
-      })
       await waitFor(() => expect(result.current.isStreaming).toBe(false))
 
       await act(async () => {
@@ -593,6 +562,160 @@ describe('useGhostAI', () => {
       expect(result.current.messages.at(-1)?.kind).toBe('notes')
       // The earlier exchange is still in the visible chat
       expect(result.current.messages).toHaveLength(4)
+    })
+  })
+
+  describe('streaming by request id', () => {
+    // A stream that stays open until the test ends it; chunks are emitted
+    // through the onStreamChunk listener the hook registered.
+    function controllableStream() {
+      const finishers: ((r: any) => void)[] = []
+      window.ghostAPI.ollamaChatStream = vi.fn().mockImplementation(
+        () => new Promise(resolve => finishers.push(resolve)),
+      )
+      const emit = (chunk: { requestId: string; content?: string; thinking?: string }) => {
+        const listener = (window.ghostAPI.onStreamChunk as any).mock.calls.at(-1)[0]
+        listener({ content: '', thinking: '', ...chunk })
+      }
+      const requestId = (n = 0) => (window.ghostAPI.ollamaChatStream as any).mock.calls[n][0].requestId
+      return { finishers, emit, requestId }
+    }
+
+    async function ready() {
+      const hook = renderHook(() => useGhostAI())
+      await waitFor(() => expect(hook.result.current.settingsLoaded).toBe(true))
+      return hook
+    }
+
+    it('should apply only chunks of the active request', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('Hello') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+
+      act(() => {
+        stream.emit({ requestId: stream.requestId(), content: 'Hi ' })
+        stream.emit({ requestId: 'some-other-request', content: 'WRONG' })
+        stream.emit({ requestId: stream.requestId(), content: 'there' })
+      })
+      expect(result.current.messages[1].content).toBe('Hi there')
+      expect(result.current.messages[1].isStreaming).toBe(true)
+
+      await act(async () => stream.finishers[0]({ success: true, content: 'Hi there', thinking: '' }))
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({ content: 'Hi there', isStreaming: false }))
+      expect(result.current.isStreaming).toBe(false)
+    })
+
+    it('should keep the reasoning separate from the answer', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('Why?') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+
+      act(() => stream.emit({ requestId: stream.requestId(), thinking: 'Considering...' }))
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({ content: '', thinking: 'Considering...' }))
+
+      await act(async () => stream.finishers[0]({ success: true, content: 'Because.', thinking: 'Considering...' }))
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({ content: 'Because.', thinking: 'Considering...' }))
+    })
+
+    it('should let thinking models reason by default and send think: false when off', async () => {
+      const { result } = await ready()
+      expect(result.current.settings.reasoning).toBe(true)
+      await act(async () => { await result.current.sendMessage('a') })
+      expect((window.ghostAPI.ollamaChatStream as any).mock.calls[0][0]).not.toHaveProperty('think')
+
+      act(() => result.current.updateSettings({ reasoning: false }))
+      await act(async () => { await result.current.sendMessage('b') })
+      expect((window.ghostAPI.ollamaChatStream as any).mock.calls[1][0].think).toBe(false)
+    })
+
+    it('should stop the active request and keep the partial reply', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('Long answer please') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+      act(() => stream.emit({ requestId: stream.requestId(), content: 'Part one' }))
+
+      act(() => result.current.stopGeneration())
+      expect(window.ghostAPI.ollamaAbort).toHaveBeenCalledWith(stream.requestId())
+
+      await act(async () => stream.finishers[0]({ success: true, aborted: true, content: 'Part one', thinking: '' }))
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({ content: 'Part one', stopped: true, isStreaming: false }))
+      expect(result.current.isStreaming).toBe(false)
+    })
+
+    it('should keep the partial reply when the stream fails midway', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('Hi') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+      act(() => stream.emit({ requestId: stream.requestId(), content: 'Half' }))
+      await act(async () => stream.finishers[0]({ success: false, error: 'Ollama 500: runner crashed', content: 'Half' }))
+      expect(result.current.messages[1].content).toBe('Half\n\nError: Ollama 500: runner crashed')
+    })
+
+    it('should queue requests made while streaming and run them in order', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('first') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1))
+
+      act(() => {
+        result.current.sendMessage('screenshot', 'data:image/png;base64,abc')
+        result.current.sendMessage('notes', undefined, { kind: 'notes' })
+      })
+      expect(result.current.queuedCount).toBe(2)
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1)
+
+      await act(async () => stream.finishers[0]({ success: true, content: 'one' }))
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(2))
+      expect(result.current.queuedCount).toBe(1)
+      const second = (window.ghostAPI.ollamaChatStream as any).mock.calls[1][0].messages.at(-1)
+      expect(second.images).toEqual(['abc'])
+
+      await act(async () => stream.finishers[1]({ success: true, content: 'two' }))
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(3))
+      await act(async () => stream.finishers[2]({ success: true, content: 'three' }))
+      expect(result.current.messages.map(m => m.content)).toEqual([
+        'first', 'one', '[Screenshot attached]\n\nscreenshot', 'two', 'notes', 'three',
+      ])
+      expect(result.current.messages.at(-1)?.kind).toBe('notes')
+      expect(result.current.queuedCount).toBe(0)
+    })
+
+    it('should keep at most the newest queued requests', async () => {
+      controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('first') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+      act(() => {
+        for (let i = 0; i < MAX_QUEUED_REQUESTS + 2; i++) result.current.sendMessage(`q${i}`)
+      })
+      expect(result.current.queuedCount).toBe(MAX_QUEUED_REQUESTS)
+    })
+
+    it('should stop the active request and drop the queue on Clear', async () => {
+      const stream = controllableStream()
+      const { result } = await ready()
+      act(() => { result.current.sendMessage('first') })
+      await waitFor(() => expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled())
+      act(() => { result.current.sendMessage('queued') })
+
+      act(() => result.current.clearChat())
+      expect(window.ghostAPI.ollamaAbort).toHaveBeenCalledWith(stream.requestId())
+      expect(result.current.queuedCount).toBe(0)
+      expect(result.current.messages).toEqual([])
+
+      await act(async () => stream.finishers[0]({ success: true, aborted: true, content: '' }))
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1)
+    })
+
+    it('should show why a non-local Ollama is refused', async () => {
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: false, models: [], error: 'Only a local Ollama is allowed' })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.connectionError).toBe('Only a local Ollama is allowed'))
+      expect(result.current.isConnected).toBe(false)
     })
   })
 })

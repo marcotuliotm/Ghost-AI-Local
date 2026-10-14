@@ -23,17 +23,17 @@ const api = {
   }) => ipcRenderer.invoke('ollama-chat', payload),
 
   ollamaChatStream: (payload: {
+    requestId: string
     model: string
     messages: OllamaMessage[]
     baseUrl: string
     options?: { num_ctx?: number }
+    think?: boolean
   }) => ipcRenderer.invoke('ollama-chat-stream', payload),
 
-  ollamaListModels: (baseUrl: string) =>
-    ipcRenderer.invoke('ollama-list-models', baseUrl),
+  ollamaAbort: (requestId: string) => ipcRenderer.invoke('ollama-abort', requestId),
 
-  ollamaCheck: (baseUrl: string) =>
-    ipcRenderer.invoke('ollama-check', baseUrl),
+  ollamaStatus: (baseUrl: string) => ipcRenderer.invoke('ollama-status', baseUrl),
 
   // Screenshot
   captureScreenshot: () => ipcRenderer.invoke('capture-screenshot'),
@@ -91,16 +91,10 @@ const api = {
   },
 
   // Events from main process
-  onStreamChunk: (callback: (chunk: string) => void) => {
-    const handler = (_event: any, chunk: string) => callback(chunk)
+  onStreamChunk: (callback: (chunk: { requestId: string; content: string; thinking: string }) => void) => {
+    const handler = (_event: any, chunk: { requestId: string; content: string; thinking: string }) => callback(chunk)
     ipcRenderer.on('ollama-stream-chunk', handler)
     return () => ipcRenderer.removeListener('ollama-stream-chunk', handler)
-  },
-
-  onStreamDone: (callback: (fullResponse: string) => void) => {
-    const handler = (_event: any, response: string) => callback(response)
-    ipcRenderer.on('ollama-stream-done', handler)
-    return () => ipcRenderer.removeListener('ollama-stream-done', handler)
   },
 
   onScreenshotCaptured: (callback: (dataUrl: string) => void) => {

@@ -1,6 +1,7 @@
 import type { Settings } from '../types'
 import { mergePresets } from './presets'
 import { isTranscriptionLanguage, isWhisperModel } from './whisper'
+import { isLocalOllamaUrl } from './ollama'
 
 /**
  * Settings read from disk, merged over the defaults. Only known keys whose
@@ -25,6 +26,8 @@ export function mergeSettings(defaults: Settings, stored: unknown): Settings {
 
   if ('presets' in s) merged.presets = mergePresets(s.presets)
   if (!merged.presets.some(p => p.id === merged.activePresetId)) merged.activePresetId = defaults.activePresetId
+  // Only a local Ollama is allowed (see lib/ollama.ts)
+  if (!isLocalOllamaUrl(merged.ollamaBaseUrl)) merged.ollamaBaseUrl = defaults.ollamaBaseUrl
   if (!isWhisperModel(merged.whisperModel)) merged.whisperModel = defaults.whisperModel
   if (!isTranscriptionLanguage(merged.transcriptionLanguage)) merged.transcriptionLanguage = defaults.transcriptionLanguage
   return merged

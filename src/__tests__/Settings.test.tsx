@@ -307,4 +307,43 @@ describe('SettingsPanel', () => {
       expect(screen.getByText(/English-only model/)).toBeInTheDocument()
     })
   })
+
+  describe('local-only Ollama', () => {
+    it('should block saving a remote Ollama URL', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByDisplayValue('http://localhost:11434'), { target: { value: 'http://192.168.1.20:11434' } })
+      expect(screen.getByRole('alert')).toHaveTextContent('Only a local Ollama is allowed')
+      expect(screen.getByText('Save')).toBeDisabled()
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).not.toHaveBeenCalled()
+    })
+
+    it('should accept another local port', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      fireEvent.change(screen.getByDisplayValue('http://localhost:11434'), { target: { value: 'http://127.0.0.1:8080' } })
+      expect(screen.queryByRole('alert')).toBeNull()
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({ ollamaBaseUrl: 'http://127.0.0.1:8080' }))
+    })
+  })
+
+  describe('reasoning', () => {
+    it('should be on by default and save when turned off', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      const toggle = screen.getByLabelText('Reasoning')
+      expect(toggle).toBeChecked()
+      fireEvent.click(toggle)
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({ reasoning: false }))
+    })
+
+    it('should say when the selected model does not reason', () => {
+      const models = [{ name: 'gemma4:latest', size: 1, digest: 'a', modified_at: '', capabilities: ['completion'] }]
+      render(<SettingsPanel {...defaultProps} models={models} />)
+      expect(screen.getByText(/does not reason/)).toBeInTheDocument()
+    })
+  })
 })

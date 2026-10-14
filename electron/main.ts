@@ -18,6 +18,14 @@ import path from 'path'
 import fs from 'fs'
 import Store from 'electron-store'
 import { DEFAULT_WHISPER_MODEL, isWhisperModel, whisperGenerateOptions } from '../src/lib/whisper'
+import {
+  CLOUD_MODEL_ERROR,
+  isCloudModel,
+  isLocalOllamaUrl,
+  normalizeOllamaUrl,
+  parseStreamLine,
+  REMOTE_OLLAMA_ERROR,
+} from '../src/lib/ollama'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
 // Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
@@ -393,6 +401,27 @@ function registerShortcuts() {
 const ollamaFetch: typeof globalThis.fetch = (input: any, init?: any) =>
   (net.fetch as any)(input, init)
 
+// Streaming replies in progress, by renderer requestId (for the Stop button)
+const activeStreams = new Map<string, AbortController>()
+// Cloud models seen in the last /api/tags (proxied to ollama.com)
+let cloudModelNames = new Set<string>()
+
+// Every Ollama request must target a local server and a local model.
+function blockedOllamaRequest(baseUrl: unknown, model: unknown): string | null {
+  if (!isLocalOllamaUrl(baseUrl)) return REMOTE_OLLAMA_ERROR
+  if (typeof model === 'string' && (isCloudModel(model) || cloudModelNames.has(model))) return CLOUD_MODEL_ERROR
+  return null
+}
+
+// Surface Ollama's actual error body (e.g. model not found, context too large,
+// missing vision capability) instead of a generic status line.
+async function ollamaErrorMessage(response: Response): Promise<string> {
+  const detail = await response.text().catch(() => '')
+  let msg = detail
+  try { msg = JSON.parse(detail).error || detail } catch {}
+  return `Ollama ${response.status}: ${msg || response.statusText}`
+}
+
 function sendWhisperProgress(status: string, message: string, progress: number, model?: string) {
   mainWindow?.webContents.send('whisper-progress', { status, message, progress, model })
 }
@@ -502,7 +531,7 @@ async function createWhisperPipeline(model: string): Promise<WhisperLoadResult> 
 
 // IPC Handlers
 function setupIPC() {
-  // Ollama chat
+  // Ollama chat (non-streaming): background summaries, file names
   ipcMain.handle('ollama-chat', async (_event, payload: {
     model: string
     messages: Array<{ role: string; content: string; images?: string[] }>
@@ -510,8 +539,10 @@ function setupIPC() {
     options?: { num_ctx?: number }
     think?: boolean
   }) => {
+    const blocked = blockedOllamaRequest(payload.baseUrl, payload.model)
+    if (blocked) return { success: false, error: blocked }
     try {
-      const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
+      const response = await ollamaFetch(`${normalizeOllamaUrl(payload.baseUrl)}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -526,14 +557,7 @@ function setupIPC() {
         }),
       })
 
-      if (!response.ok) {
-        // Surface Ollama's actual error body (e.g. model not found, context too
-        // large, missing vision capability) instead of a generic status line.
-        const detail = await response.text().catch(() => '')
-        let msg = detail
-        try { msg = JSON.parse(detail).error || detail } catch {}
-        throw new Error(`Ollama ${response.status}: ${msg || response.statusText}`)
-      }
+      if (!response.ok) throw new Error(await ollamaErrorMessage(response))
 
       const data = await response.json()
       return { success: true, message: data.message }
@@ -542,117 +566,116 @@ function setupIPC() {
     }
   })
 
-  // Ollama streaming chat
-  ipcMain.handle('ollama-chat-stream', async (event, payload: {
+  // Ollama streaming chat. Chunks go out as `ollama-stream-chunk` events tagged
+  // with the renderer's requestId (so a late chunk can never land in another
+  // reply); the invoke resolves with the full content once the stream ends.
+  // `think: false` turns reasoning off; omitted, thinking models reason and the
+  // reasoning arrives separately in `thinking`.
+  ipcMain.handle('ollama-chat-stream', async (_event, payload: {
+    requestId: string
     model: string
     messages: Array<{ role: string; content: string; images?: string[] }>
     baseUrl: string
     options?: { num_ctx?: number }
+    think?: boolean
   }) => {
+    const blocked = blockedOllamaRequest(payload.baseUrl, payload.model)
+    if (blocked) return { success: false, error: blocked }
+
+    const { requestId } = payload
+    const controller = new AbortController()
+    activeStreams.set(requestId, controller)
+    let content = ''
+    let thinking = ''
+
     try {
-      const response = await ollamaFetch(`${payload.baseUrl}/api/chat`, {
+      const response = await ollamaFetch(`${normalizeOllamaUrl(payload.baseUrl)}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           model: payload.model,
           messages: payload.messages,
           stream: true,
+          ...(payload.think === false ? { think: false } : {}),
           // num_ctx: without it Ollama silently truncates long prompts to its
           // small default window, dropping the system prompt / oldest context.
           ...(payload.options ? { options: payload.options } : {}),
         }),
       })
 
-      if (!response.ok) {
-        // Surface Ollama's actual error body (e.g. model not found, context too
-        // large, missing vision capability) instead of a generic status line.
-        const detail = await response.text().catch(() => '')
-        let msg = detail
-        try { msg = JSON.parse(detail).error || detail } catch {}
-        throw new Error(`Ollama ${response.status}: ${msg || response.statusText}`)
-      }
+      if (!response.ok) throw new Error(await ollamaErrorMessage(response))
 
       const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-
       if (!reader) throw new Error('No reader available')
-
-      let fullResponse = ''
-      let doneSent = false
+      const decoder = new TextDecoder()
       // Ollama streams newline-delimited JSON. A single JSON object can be split
       // across read() chunks, so buffer partial lines instead of parsing each
-      // raw chunk — otherwise the split line (and its `done` flag) is dropped,
-      // leaving the UI stuck in the streaming state.
+      // raw chunk.
       let buffer = ''
 
-      const handleLine = (line: string) => {
+      const handleLine = (raw: string) => {
+        const line = parseStreamLine(raw)
         if (!line) return
-        try {
-          const json = JSON.parse(line)
-          if (json.message?.content) {
-            fullResponse += json.message.content
-            mainWindow?.webContents.send('ollama-stream-chunk', json.message.content)
-          }
-          if (json.done) {
-            doneSent = true
-            mainWindow?.webContents.send('ollama-stream-done', fullResponse)
-          }
-        } catch {
-          // Skip malformed lines
-        }
+        if (line.error) throw new Error(line.error)
+        if (!line.content && !line.thinking) return
+        content += line.content
+        thinking += line.thinking
+        mainWindow?.webContents.send('ollama-stream-chunk', {
+          requestId,
+          content: line.content,
+          thinking: line.thinking,
+        })
       }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
         // Keep the last, possibly-incomplete line in the buffer.
         buffer = lines.pop() ?? ''
         for (const line of lines) handleLine(line)
       }
-
-      // Flush the decoder's internal state so a multi-byte character split
-      // across the final chunk isn't lost, then parse any trailing line.
+      // Flush the decoder so a multi-byte character split across the final
+      // chunk isn't lost, then parse any trailing line.
       buffer += decoder.decode()
-      handleLine(buffer.trim())
+      handleLine(buffer)
 
-      // If the stream ended without ever delivering a `done` line (connection
-      // severed mid-stream, or a truncated/malformed final fragment), the
-      // renderer would stay stuck in the streaming state. Emit the done event
-      // as a fallback so isStreaming is always reset.
-      if (!doneSent) {
-        mainWindow?.webContents.send('ollama-stream-done', fullResponse)
-      }
-
-      return { success: true, message: { role: 'assistant', content: fullResponse } }
+      return { success: true, content, thinking }
     } catch (error: any) {
-      return { success: false, error: error.message }
+      // Stopped by the user: keep what was generated so far
+      if (controller.signal.aborted) return { success: true, aborted: true, content, thinking }
+      return { success: false, error: error.message, content, thinking }
+    } finally {
+      activeStreams.delete(requestId)
     }
   })
 
-  // List Ollama models
-  ipcMain.handle('ollama-list-models', async (_event, baseUrl: string) => {
-    try {
-      const response = await ollamaFetch(`${baseUrl}/api/tags`)
-      if (!response.ok) throw new Error('Failed to fetch models')
-      const data = await response.json()
-      return { success: true, models: data.models || [] }
-    } catch (error: any) {
-      return { success: false, error: error.message, models: [] }
-    }
+  // Stop a streaming reply (the Stop button)
+  ipcMain.handle('ollama-abort', (_event, requestId: string) => {
+    const controller = activeStreams.get(requestId)
+    controller?.abort()
+    return { aborted: Boolean(controller) }
   })
 
-  // Check Ollama connection
-  ipcMain.handle('ollama-check', async (_event, baseUrl: string) => {
+  // Connection + local models in one /api/tags call (polled every 10s).
+  // Cloud models are left out: they would send the conversation to ollama.com.
+  ipcMain.handle('ollama-status', async (_event, baseUrl: string) => {
+    if (!isLocalOllamaUrl(baseUrl)) {
+      return { connected: false, models: [], error: REMOTE_OLLAMA_ERROR }
+    }
     try {
-      const response = await ollamaFetch(`${baseUrl}/api/tags`, {
+      const response = await ollamaFetch(`${normalizeOllamaUrl(baseUrl)}/api/tags`, {
         signal: AbortSignal.timeout(3000),
       })
-      return { connected: response.ok }
+      if (!response.ok) return { connected: false, models: [] }
+      const data = await response.json()
+      const all: any[] = Array.isArray(data.models) ? data.models : []
+      cloudModelNames = new Set(all.filter(m => isCloudModel(m)).map(m => m.name))
+      return { connected: true, models: all.filter(m => !isCloudModel(m)) }
     } catch {
-      return { connected: false }
+      return { connected: false, models: [] }
     }
   })
 

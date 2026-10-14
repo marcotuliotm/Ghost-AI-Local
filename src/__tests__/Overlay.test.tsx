@@ -306,4 +306,20 @@ describe('Overlay', () => {
       expect(screen.queryByText('Ping')).toBeNull()
     })
   })
+
+  describe('connection and streaming', () => {
+    it('should explain why Ollama is unavailable', () => {
+      render(<Overlay {...defaultProps} isConnected={false} connectionError="Only a local Ollama is allowed" />)
+      expect(screen.getByText('Only a local Ollama is allowed')).toBeInTheDocument()
+      expect(screen.queryByText(/Ollama not detected/)).toBeNull()
+    })
+
+    it('should wire the Stop button to stopGeneration', () => {
+      const stopGeneration = vi.fn()
+      render(<Overlay {...defaultProps} isStreaming={true} stopGeneration={stopGeneration} queuedCount={1} />)
+      fireEvent.click(screen.getByTitle('Stop generating (Esc)'))
+      expect(stopGeneration).toHaveBeenCalled()
+      expect(screen.getByPlaceholderText('Generating response... (1 queued)')).toBeInTheDocument()
+    })
+  })
 })

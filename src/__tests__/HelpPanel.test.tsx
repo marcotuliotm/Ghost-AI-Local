@@ -155,4 +155,14 @@ describe('HelpPanel', () => {
       expect(onBack).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('chat documentation', () => {
+    it('should document Stop, the queue and reasoning', () => {
+      render(<HelpPanel {...defaultProps} />)
+      expect(screen.getByText('Stop generating (while a reply streams)')).toBeInTheDocument()
+      expect(screen.getByText('Queued requests')).toBeInTheDocument()
+      expect(screen.getByText(/Thinking models/)).toBeInTheDocument()
+      expect(screen.getByText(/nothing is loaded from the internet/)).toBeInTheDocument()
+    })
+  })
 })

@@ -124,4 +124,34 @@ describe('ChatInput', () => {
       expect(input.value).toBe('')
     })
   })
+
+  describe('stop generation', () => {
+    it('should replace Send with Stop while streaming', () => {
+      const onStop = vi.fn()
+      render(<ChatInput onSend={vi.fn()} onStop={onStop} isStreaming={true} isConnected={true} />)
+      expect(screen.queryByTitle('Send')).toBeNull()
+      fireEvent.click(screen.getByTitle('Stop generating (Esc)'))
+      expect(onStop).toHaveBeenCalledTimes(1)
+    })
+
+    it('should stop with Esc while streaming', () => {
+      const onStop = vi.fn()
+      render(<ChatInput onSend={vi.fn()} onStop={onStop} isStreaming={true} isConnected={true} />)
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(onStop).toHaveBeenCalledTimes(1)
+    })
+
+    it('should not listen for Esc when idle', () => {
+      const onStop = vi.fn()
+      render(<ChatInput onSend={vi.fn()} onStop={onStop} isStreaming={false} isConnected={true} />)
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(onStop).not.toHaveBeenCalled()
+      expect(screen.getByTitle('Send')).toBeInTheDocument()
+    })
+
+    it('should show how many requests are queued', () => {
+      render(<ChatInput onSend={vi.fn()} onStop={vi.fn()} queuedCount={2} isStreaming={true} isConnected={true} />)
+      expect(screen.getByPlaceholderText('Generating response... (2 queued)')).toBeInTheDocument()
+    })
+  })
 })

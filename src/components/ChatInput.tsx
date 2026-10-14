@@ -1,14 +1,29 @@
-import { forwardRef, useState, useCallback } from 'react'
+import { forwardRef, useState, useCallback, useEffect } from 'react'
 
 interface ChatInputProps {
   onSend: (message: string) => void
+  // Stops the reply that is streaming (button + Esc)
+  onStop?: () => void
+  // Requests waiting for the current reply to finish
+  queuedCount?: number
   isStreaming: boolean
   isConnected: boolean
 }
 
 export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
-  ({ onSend, isStreaming, isConnected }, ref) => {
+  ({ onSend, onStop, queuedCount = 0, isStreaming, isConnected }, ref) => {
     const [input, setInput] = useState('')
+
+    // Esc stops generation. The input is disabled while streaming, so listen
+    // on the window instead of the field.
+    useEffect(() => {
+      if (!isStreaming || !onStop) return
+      const handleKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onStop()
+      }
+      window.addEventListener('keydown', handleKey)
+      return () => window.removeEventListener('keydown', handleKey)
+    }, [isStreaming, onStop])
 
     const handleSubmit = useCallback(
       (e: React.FormEvent) => {
@@ -47,7 +62,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
                 !isConnected
                   ? 'Ollama disconnected...'
                   : isStreaming
-                    ? 'Generating response...'
+                    ? `Generating response...${queuedCount > 0 ? ` (${queuedCount} queued)` : ''}`
                     : 'Ask something... (Cmd+Shift+A)'
               }
               disabled={!isConnected || isStreaming}
@@ -66,16 +81,29 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={!input.trim() || isStreaming || !isConnected}
-            className="p-1.5 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover disabled:opacity-30 disabled:hover:bg-ghost-accent transition-colors"
-            title="Send"
-          >
-            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19V5m0 0l-7 7m7-7l7 7" />
-            </svg>
-          </button>
+          {isStreaming && onStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="p-1.5 rounded-lg bg-ghost-error/80 hover:bg-ghost-error transition-colors"
+              title="Stop generating (Esc)"
+            >
+              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim() || isStreaming || !isConnected}
+              className="p-1.5 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover disabled:opacity-30 disabled:hover:bg-ghost-accent transition-colors"
+              title="Send"
+            >
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19V5m0 0l-7 7m7-7l7 7" />
+              </svg>
+            </button>
+          )}
         </div>
       </form>
     )

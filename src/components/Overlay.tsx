@@ -28,6 +28,9 @@ interface OverlayProps {
   models: OllamaModel[]
   settings: Settings
   settingsLoaded?: boolean
+  connectionError?: string | null
+  queuedCount?: number
+  stopGeneration?: () => void
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -45,6 +48,9 @@ export function Overlay({
   models,
   settings,
   settingsLoaded = true,
+  connectionError = null,
+  queuedCount = 0,
+  stopGeneration,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -344,9 +350,15 @@ export function Overlay({
               </p>
               {!isConnected && (
                 <div className="bg-ghost-error/20 text-ghost-error rounded-lg px-3 py-2 text-[10px]">
-                  Ollama not detected. Start Ollama first.
-                  <br />
-                  <code className="text-[9px] opacity-80">ollama serve</code>
+                  {connectionError ? (
+                    connectionError
+                  ) : (
+                    <>
+                      Ollama not detected. Start Ollama first.
+                      <br />
+                      <code className="text-[9px] opacity-80">ollama serve</code>
+                    </>
+                  )}
                 </div>
               )}
               <div className="mt-3 space-y-1.5 text-[9px] text-ghost-text-muted opacity-50 w-full max-w-[220px]">
@@ -417,6 +429,8 @@ export function Overlay({
           // Any live transcript goes along as context, not inside the message
           sendMessage(content, undefined, { context: getTranscriptContext() })
         }}
+        onStop={stopGeneration}
+        queuedCount={queuedCount}
         isStreaming={isStreaming}
         isConnected={isConnected}
       />

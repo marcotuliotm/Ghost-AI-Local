@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ChatMessage } from '../types'
+import { Markdown } from './Markdown'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -110,15 +111,50 @@ export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
           </div>
         )}
 
-        {/* Message content */}
-        <div className="response-content text-xs leading-relaxed whitespace-pre-wrap break-words">
-          {message.content || (message.isStreaming ? '' : '')}
-          {message.isStreaming && !message.content && (
-            <span className="cursor-blink text-ghost-text-muted">Thinking</span>
-          )}
-        </div>
+        {/* Model reasoning (thinking models), collapsed once the answer starts */}
+        {!isUser && message.thinking && (
+          <Reasoning text={message.thinking} live={Boolean(message.isStreaming && !message.content)} />
+        )}
+
+        {/* Message content: the user's text as typed, replies as Markdown */}
+        {isUser ? (
+          <div className="text-xs leading-relaxed whitespace-pre-wrap break-words">{message.content}</div>
+        ) : (
+          <div className="response-content text-xs leading-relaxed break-words">
+            {message.content && <Markdown text={message.content} />}
+            {message.isStreaming && !message.content && !message.thinking && (
+              <span className="cursor-blink text-ghost-text-muted">Thinking</span>
+            )}
+            {message.stopped && (
+              <span className="block text-[9px] text-ghost-text-muted italic mt-1">Stopped</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
+  )
+}
+
+// The reasoning stays open and follows the newest text while the model is
+// still thinking; once the answer starts it collapses (click to reopen).
+function Reasoning({ text, live }: { text: string; live: boolean }) {
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (live && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [text, live])
+
+  return (
+    <details open={live} className="mb-1.5 rounded-md bg-ghost-fill px-2 py-1">
+      <summary className="cursor-pointer select-none text-[9px] text-ghost-text-muted">
+        {live ? <span className="animate-pulse">Reasoning...</span> : 'Reasoning'}
+      </summary>
+      <div
+        ref={bodyRef}
+        className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-ghost-text-muted"
+      >
+        {text}
+      </div>
+    </details>
   )
 }
 
