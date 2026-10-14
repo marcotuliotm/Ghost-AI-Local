@@ -99,4 +99,11 @@ describe('mergeSettings', () => {
     merged.shortcuts.screenshot = 'Alt+F3'
     expect(DEFAULT_SETTINGS.shortcuts.screenshot).toBe('CommandOrControl+Shift+S')
   })
+
+  it('should show the first-run setup only to new users', () => {
+    expect(mergeSettings(DEFAULT_SETTINGS, null).onboardingCompleted).toBe(false)
+    // Saved before the setup existed → an existing user
+    expect(mergeSettings(DEFAULT_SETTINGS, { selectedModel: 'llama3:8b' }).onboardingCompleted).toBe(true)
+    expect(mergeSettings(DEFAULT_SETTINGS, { onboardingCompleted: false }).onboardingCompleted).toBe(false)
+  })
 })

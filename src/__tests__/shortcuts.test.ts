@@ -76,4 +76,12 @@ describe('mergeShortcuts', () => {
     })
     expect(mergeShortcuts(null)).toEqual(DEFAULT_SHORTCUTS)
   })
+
+describe('compact mode shortcut', () => {
+  it('should have a default and fill it in for older stored shortcuts', () => {
+    expect(DEFAULT_SHORTCUTS.compactMode).toBe('CommandOrControl+Shift+M')
+    expect(mergeShortcuts({ toggleOverlay: 'Alt+F1' }).compactMode).toBe('CommandOrControl+Shift+M')
+    expect(findDuplicateShortcuts(DEFAULT_SHORTCUTS)).toEqual([])
+  })
+})
 })

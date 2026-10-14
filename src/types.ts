@@ -41,6 +41,12 @@ export interface GhostAPI {
   setOpacity: (opacity: number) => void
   // Hide the overlay from screen sharing, recordings and other apps' screenshots
   setContentProtection: (enabled: boolean) => void
+  // Shrink to / restore from the compact card (click-through via setIgnoreMouse)
+  setCompactMode: (enabled: boolean) => void
+
+  // First-run setup: Screen Recording status, and the System Settings privacy panes
+  getScreenPermission: () => Promise<{ status: string }>
+  openPrivacySettings: (kind: 'microphone' | 'screen') => Promise<{ opened: boolean }>
 
   // Global shortcuts: register the configured ones (returns those that could
   // not be registered — invalid or owned by another app); suspend while recording
@@ -84,6 +90,7 @@ export interface GhostAPI {
   onFocusInput: (callback: () => void) => () => void
   onOpenSettings: (callback: () => void) => () => void
   onOverlayVisibility: (callback: (visible: boolean) => void) => () => void
+  onToggleCompact: (callback: () => void) => () => void // compact-mode shortcut / tray
 }
 
 export type SaveFormat = 'txt' | 'md'
@@ -161,6 +168,7 @@ export interface Settings {
   reasoning: boolean // let thinking models reason (default true); false sends think: false
   shortcuts: Shortcuts // global shortcuts (Electron accelerators)
   hideFromScreenShare: boolean // content protection: overlay invisible to screen sharing (default true)
+  onboardingCompleted: boolean // first-run setup finished or skipped
 }
 
 declare global {

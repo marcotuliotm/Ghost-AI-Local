@@ -52,6 +52,12 @@ const api = {
     ipcRenderer.send('set-opacity', opacity),
   setContentProtection: (enabled: boolean) =>
     ipcRenderer.send('set-content-protection', enabled),
+  setCompactMode: (enabled: boolean) =>
+    ipcRenderer.send('set-compact-mode', enabled),
+
+  // First-run setup
+  getScreenPermission: () => ipcRenderer.invoke('get-screen-permission'),
+  openPrivacySettings: (kind: 'microphone' | 'screen') => ipcRenderer.invoke('open-privacy-settings', kind),
 
   // Global shortcuts
   shortcutsUpdate: (shortcuts: Record<string, string>) =>
@@ -121,6 +127,12 @@ const api = {
     const handler = () => callback()
     ipcRenderer.on('open-settings', handler)
     return () => ipcRenderer.removeListener('open-settings', handler)
+  },
+
+  onToggleCompact: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('toggle-compact', handler)
+    return () => ipcRenderer.removeListener('toggle-compact', handler)
   },
 
   onOverlayVisibility: (callback: (visible: boolean) => void) => {

@@ -2,7 +2,7 @@
 // Pure module shared by the renderer (Settings recorder) and the main process
 // (which registers them with globalShortcut). Accelerators use Electron syntax.
 
-export type ShortcutAction = 'toggleOverlay' | 'screenshot' | 'cropScreenshot' | 'focusInput'
+export type ShortcutAction = 'toggleOverlay' | 'screenshot' | 'cropScreenshot' | 'focusInput' | 'compactMode'
 export type Shortcuts = Record<ShortcutAction, string>
 
 export const DEFAULT_SHORTCUTS: Shortcuts = {
@@ -10,6 +10,7 @@ export const DEFAULT_SHORTCUTS: Shortcuts = {
   screenshot: 'CommandOrControl+Shift+S',
   cropScreenshot: 'CommandOrControl+Shift+X',
   focusInput: 'CommandOrControl+Shift+A',
+  compactMode: 'CommandOrControl+Shift+M',
 }
 
 export const SHORTCUT_ACTIONS: { id: ShortcutAction; label: string }[] = [
@@ -17,6 +18,7 @@ export const SHORTCUT_ACTIONS: { id: ShortcutAction; label: string }[] = [
   { id: 'screenshot', label: 'Capture screenshot & analyze' },
   { id: 'cropScreenshot', label: 'Crop screen region & analyze' },
   { id: 'focusInput', label: 'Focus text input' },
+  { id: 'compactMode', label: 'Toggle compact mode' },
 ]
 
 const MODIFIERS = new Set([

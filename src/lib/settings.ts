@@ -26,6 +26,8 @@ export function mergeSettings(defaults: Settings, stored: unknown): Settings {
   }
 
   if ('presets' in s) merged.presets = mergePresets(s.presets)
+  // Settings saved before the first-run setup existed: not a new user
+  if (!('onboardingCompleted' in s)) merged.onboardingCompleted = true
   merged.shortcuts = mergeShortcuts(s.shortcuts)
   if (!merged.presets.some(p => p.id === merged.activePresetId)) merged.activePresetId = defaults.activePresetId
   // Only a local Ollama is allowed (see lib/ollama.ts)
