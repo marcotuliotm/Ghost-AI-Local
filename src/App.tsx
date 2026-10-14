@@ -20,6 +20,11 @@ export default function App() {
     window.ghostAPI.setOpacity(ghostAI.settings.opacity)
   }, [ghostAI.settings.opacity])
 
+  // Hide the overlay from screen sharing (Settings > Privacy, on by default)
+  useEffect(() => {
+    window.ghostAPI.setContentProtection(ghostAI.settings.hideFromScreenShare)
+  }, [ghostAI.settings.hideFromScreenShare])
+
   useEffect(() => {
     const removeSettingsListener = window.ghostAPI.onOpenSettings(() => {
       setView('settings')
@@ -48,10 +53,11 @@ export default function App() {
           onBack={() => setView('overlay')}
           onRefreshModels={ghostAI.fetchModels}
           onCheckConnection={ghostAI.checkConnection}
+          shortcutErrors={ghostAI.shortcutErrors}
         />
       )}
       {view === 'help' && (
-        <HelpPanel onBack={() => setView('overlay')} />
+        <HelpPanel onBack={() => setView('overlay')} shortcuts={ghostAI.settings.shortcuts} />
       )}
     </div>
   )

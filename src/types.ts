@@ -1,4 +1,5 @@
 // Type definitions for the Ghost AI API exposed via preload
+import type { ShortcutAction, Shortcuts } from './lib/shortcuts'
 export interface GhostAPI {
   // Ollama
   ollamaChat: (payload: {
@@ -38,6 +39,13 @@ export interface GhostAPI {
   moveWindow: (x: number, y: number) => void
   resizeWindow: (width: number, height: number) => void
   setOpacity: (opacity: number) => void
+  // Hide the overlay from screen sharing, recordings and other apps' screenshots
+  setContentProtection: (enabled: boolean) => void
+
+  // Global shortcuts: register the configured ones (returns those that could
+  // not be registered — invalid or owned by another app); suspend while recording
+  shortcutsUpdate: (shortcuts: Shortcuts) => Promise<{ failed: ShortcutAction[] }>
+  suspendShortcuts: (suspend: boolean) => void
 
   // Microphone
   requestMicPermission: () => Promise<{ granted: boolean }>
@@ -151,6 +159,8 @@ export interface Settings {
   presets: Preset[] // prompt presets (built-ins first)
   activePresetId: string // supplies the system prompt, Suggest reply template and quick actions
   reasoning: boolean // let thinking models reason (default true); false sends think: false
+  shortcuts: Shortcuts // global shortcuts (Electron accelerators)
+  hideFromScreenShare: boolean // content protection: overlay invisible to screen sharing (default true)
 }
 
 declare global {

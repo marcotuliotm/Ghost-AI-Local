@@ -8,6 +8,9 @@ Object.defineProperty(globalThis, 'crypto', {
   },
 })
 
+// The app is macOS-first: shortcut labels render as "Cmd+Shift+..." in tests
+Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true })
+
 // Mock scrollIntoView (not available in jsdom)
 Element.prototype.scrollIntoView = vi.fn()
 
@@ -25,6 +28,9 @@ const createMockGhostAPI = () => ({
   moveWindow: vi.fn(),
   resizeWindow: vi.fn(),
   setOpacity: vi.fn(),
+  setContentProtection: vi.fn(),
+  shortcutsUpdate: vi.fn().mockResolvedValue({ failed: [] }),
+  suspendShortcuts: vi.fn(),
   requestMicPermission: vi.fn().mockResolvedValue({ granted: true }),
   getMicStatus: vi.fn().mockResolvedValue({ status: 'granted' }),
   whisperLoad: vi.fn().mockResolvedValue({ status: 'ready' }),

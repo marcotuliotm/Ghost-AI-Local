@@ -16,6 +16,14 @@ import {
   WHISPER_MODELS,
 } from '../lib/whisper'
 import { isLocalOllamaUrl, supportsThinking } from '../lib/ollama'
+import {
+  DEFAULT_SHORTCUTS,
+  findDuplicateShortcuts,
+  isMacPlatform,
+  SHORTCUT_ACTIONS,
+  type ShortcutAction,
+} from '../lib/shortcuts'
+import { ShortcutRecorder } from './ShortcutRecorder'
 
 const CONTEXT_LENGTH_OPTIONS = [4096, 8192, 16384, 32768]
 
@@ -31,6 +39,8 @@ interface SettingsPanelProps {
   onBack: () => void
   onRefreshModels: () => Promise<OllamaModel[]>
   onCheckConnection: () => Promise<boolean>
+  // Saved shortcuts the main process could not register (owned by another app)
+  shortcutErrors?: ShortcutAction[]
 }
 
 export function SettingsPanel({
@@ -41,6 +51,7 @@ export function SettingsPanel({
   onBack,
   onRefreshModels,
   onCheckConnection,
+  shortcutErrors = [],
 }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings)
   const [isChecking, setIsChecking] = useState(false)
@@ -53,8 +64,20 @@ export function SettingsPanel({
   const urlIsLocal = isLocalOllamaUrl(localSettings.ollamaBaseUrl)
   const selectedModelInfo = models.find(m => m.name === localSettings.selectedModel)
 
+  const isMac = isMacPlatform()
+  const duplicateShortcuts = findDuplicateShortcuts(localSettings.shortcuts)
+  const shortcutError = (id: ShortcutAction): string | undefined => {
+    if (duplicateShortcuts.includes(id)) return 'Used by another action'
+    // A registration failure refers to the saved combination; editing it clears the error
+    if (shortcutErrors.includes(id) && localSettings.shortcuts[id] === settings.shortcuts[id]) {
+      return 'In use by another app'
+    }
+    return undefined
+  }
+  const canSave = urlIsLocal && duplicateShortcuts.length === 0
+
   const handleSave = () => {
-    if (!urlIsLocal) return
+    if (!canSave) return
     onUpdateSettings(localSettings)
     onBack()
   }
@@ -105,8 +128,8 @@ export function SettingsPanel({
         </div>
         <button
           onClick={handleSave}
-          disabled={!urlIsLocal}
-          title={urlIsLocal ? undefined : 'The Ollama URL must be local'}
+          disabled={!canSave}
+          title={!urlIsLocal ? 'The Ollama URL must be local' : duplicateShortcuts.length > 0 ? 'Two actions share a shortcut' : undefined}
           className="px-3 py-1 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover text-xs text-white transition-colors no-drag disabled:opacity-40 disabled:hover:bg-ghost-accent"
         >
           Save
@@ -487,16 +510,51 @@ export function SettingsPanel({
 
         {/* Keyboard Shortcuts */}
         <Section title="Shortcuts">
-          <div className="space-y-1.5 text-xs text-ghost-text-muted">
-            <ShortcutRow label="Show/Hide overlay" shortcut="Cmd+Shift+G" />
-            <ShortcutRow label="Capture screenshot" shortcut="Cmd+Shift+S" />
-            <ShortcutRow label="Focus input" shortcut="Cmd+Shift+A" />
-            <ShortcutRow label="Screenshot crop" shortcut="Cmd+Shift+X" />
+          <div className="space-y-1.5">
+            {SHORTCUT_ACTIONS.map(({ id, label }) => (
+              <ShortcutRecorder
+                key={id}
+                label={label}
+                value={localSettings.shortcuts[id]}
+                isMac={isMac}
+                error={shortcutError(id)}
+                onChange={accelerator => setLocalSettings(prev => ({
+                  ...prev,
+                  shortcuts: { ...prev.shortcuts, [id]: accelerator },
+                }))}
+              />
+            ))}
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-[9px] text-ghost-text-muted opacity-60">
+                Click a shortcut, then press the new keys (Esc cancels). Esc in the chat clears the input / stops a reply.
+              </p>
+              <button
+                onClick={() => setLocalSettings(prev => ({ ...prev, shortcuts: { ...DEFAULT_SHORTCUTS } }))}
+                className="flex-shrink-0 ml-2 text-[10px] text-ghost-accent hover:text-ghost-accent-hover transition-colors"
+              >
+                Reset
+              </button>
+            </div>
           </div>
         </Section>
 
         {/* Privacy */}
         <Section title="Privacy">
+          <label className="flex items-center gap-2 mb-1 text-xs text-ghost-text cursor-pointer">
+            <input
+              type="checkbox"
+              checked={localSettings.hideFromScreenShare}
+              onChange={e => {
+                const hideFromScreenShare = e.target.checked
+                setLocalSettings(prev => ({ ...prev, hideFromScreenShare }))
+              }}
+              className="accent-ghost-accent"
+            />
+            Hide from screen sharing
+          </label>
+          <p className="text-[9px] text-ghost-text-muted opacity-60 mb-2">
+            The overlay stays invisible in screen shares, recordings and screenshots taken by other apps (and by Ghost AI's own screenshots).
+          </p>
           <div className="bg-ghost-success/10 border border-ghost-success/20 rounded-lg p-3">
             <p className="text-[10px] text-ghost-success leading-relaxed">
               Ghost AI is 100% local and anonymous. No data is sent to external servers.
@@ -552,17 +610,6 @@ function Input({
         placeholder={placeholder}
         className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
       />
-    </div>
-  )
-}
-
-function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span>{label}</span>
-      <kbd className="bg-ghost-fill-strong px-1.5 py-0.5 rounded text-[9px] font-mono">
-        {shortcut}
-      </kbd>
     </div>
   )
 }

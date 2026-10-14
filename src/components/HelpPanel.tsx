@@ -1,8 +1,13 @@
+import { DEFAULT_SHORTCUTS, formatAccelerator, isMacPlatform, type Shortcuts } from '../lib/shortcuts'
+
 interface HelpPanelProps {
   onBack: () => void
+  shortcuts?: Shortcuts // configured global shortcuts (Settings)
 }
 
-export function HelpPanel({ onBack }: HelpPanelProps) {
+export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelProps) {
+  const isMac = isMacPlatform()
+  const keys = (action: keyof Shortcuts) => formatAccelerator(shortcuts[action], isMac)
   return (
     <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
       {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
@@ -25,10 +30,10 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
         {/* Keyboard Shortcuts */}
         <Section title="Keyboard Shortcuts">
           <div className="space-y-1.5 text-xs text-ghost-text-muted">
-            <ShortcutRow label="Show/Hide overlay" shortcut="Cmd+Shift+G" />
-            <ShortcutRow label="Capture screenshot & analyze" shortcut="Cmd+Shift+S" />
-            <ShortcutRow label="Crop screen region & analyze" shortcut="Cmd+Shift+X" />
-            <ShortcutRow label="Focus text input" shortcut="Cmd+Shift+A" />
+            <ShortcutRow label="Show/Hide overlay" shortcut={keys('toggleOverlay')} />
+            <ShortcutRow label="Capture screenshot & analyze" shortcut={keys('screenshot')} />
+            <ShortcutRow label="Crop screen region & analyze" shortcut={keys('cropScreenshot')} />
+            <ShortcutRow label="Focus text input" shortcut={keys('focusInput')} />
             <ShortcutRow label="Clear text input" shortcut="Esc" />
             <ShortcutRow label="Stop generating (while a reply streams)" shortcut="Esc" />
             <ShortcutRow label="Send message" shortcut="Enter" />
@@ -64,7 +69,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Screenshot (Full)"
-              description="Captures the full screen and sends it to Ollama to analyze visible content (Cmd+Shift+S)"
+              description={`Captures the screen under the mouse pointer and sends it to Ollama to analyze visible content (${keys('screenshot')})`}
             />
             <ButtonRow
               icon={
@@ -73,7 +78,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Screenshot (Crop)"
-              description="Opens a fullscreen overlay to select a region (Cmd+Shift+X). Click and drag to crop, Esc to cancel. The cropped region is sent to Ollama for analysis"
+              description={`Opens a fullscreen overlay on the screen under the mouse pointer to select a region (${keys('cropScreenshot')}). Click and drag to crop, Esc to cancel. The region is cut at full Retina resolution and sent to Ollama for analysis`}
             />
             <ButtonRow
               icon={
@@ -101,7 +106,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Settings"
-              description="Opens the settings panel (model, context window, presets, appearance, Whisper model and language, transcription). Settings are saved on this machine and kept across restarts"
+              description="Opens the settings panel (model, context window, reasoning, presets, appearance, Whisper model and language, transcription, shortcuts, privacy). Settings are saved on this machine and kept across restarts"
             />
             <ButtonRow
               icon={
@@ -119,7 +124,7 @@ export function HelpPanel({ onBack }: HelpPanelProps) {
                 </svg>
               }
               label="Minimize"
-              description="Hides the window. Use Cmd+Shift+G to bring it back"
+              description={`Hides the window. Use ${keys('toggleOverlay')} to bring it back`}
             />
           </div>
         </Section>

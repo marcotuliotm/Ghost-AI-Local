@@ -4,6 +4,7 @@ import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSyst
 import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
 import { mergeSettings } from '../lib/settings'
 import { DEFAULT_TRANSCRIPTION_LANGUAGE, DEFAULT_WHISPER_MODEL } from '../lib/whisper'
+import { DEFAULT_SHORTCUTS, type ShortcutAction } from '../lib/shortcuts'
 
 export interface SendMessageOptions {
   // Live transcript context, sent as a system message on this request only —
@@ -31,6 +32,8 @@ export const DEFAULT_SETTINGS: Settings = {
   presets: defaultPresets(),
   activePresetId: DEFAULT_PRESET_ID,
   reasoning: true,
+  shortcuts: { ...DEFAULT_SHORTCUTS },
+  hideFromScreenShare: true,
 }
 
 // Requests made while a reply is streaming wait here (screenshot shortcut,
@@ -65,6 +68,8 @@ export function useGhostAI() {
   // back before that, so the defaults never overwrite the stored settings.
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [queue, setQueue] = useState<QueuedRequest[]>([])
+  // Shortcuts the main process could not register (taken by another app)
+  const [shortcutErrors, setShortcutErrors] = useState<ShortcutAction[]>([])
   const activeRef = useRef<ActiveRequest | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   // Read at request time, so queued requests use the settings of that moment
@@ -93,6 +98,17 @@ export function useGhostAI() {
       .then(() => window.ghostAPI.settingsSave(settings))
       .catch(err => console.error('Failed to save settings:', err))
   }, [settings, settingsLoaded])
+
+  // Register the configured global shortcuts once the stored ones are known
+  useEffect(() => {
+    if (!settingsLoaded) return
+    let cancelled = false
+    Promise.resolve()
+      .then(() => window.ghostAPI.shortcutsUpdate(settings.shortcuts))
+      .then(res => { if (!cancelled) setShortcutErrors(res?.failed ?? []) })
+      .catch(err => console.error('Failed to register shortcuts:', err))
+    return () => { cancelled = true }
+  }, [settings.shortcuts, settingsLoaded])
 
   // Connection + model list in one request
   const refreshStatus = useCallback(async () => {
@@ -300,6 +316,7 @@ export function useGhostAI() {
     models,
     settings,
     settingsLoaded,
+    shortcutErrors,
     sendMessage,
     stopGeneration,
     askSuggestion,

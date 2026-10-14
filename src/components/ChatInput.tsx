@@ -6,12 +6,14 @@ interface ChatInputProps {
   onStop?: () => void
   // Requests waiting for the current reply to finish
   queuedCount?: number
+  // Label of the global "focus input" shortcut, shown in the placeholder
+  focusShortcut?: string
   isStreaming: boolean
   isConnected: boolean
 }
 
 export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
-  ({ onSend, onStop, queuedCount = 0, isStreaming, isConnected }, ref) => {
+  ({ onSend, onStop, queuedCount = 0, focusShortcut = 'Cmd+Shift+A', isStreaming, isConnected }, ref) => {
     const [input, setInput] = useState('')
 
     // Esc stops generation. The input is disabled while streaming, so listen
@@ -63,7 +65,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
                   ? 'Ollama disconnected...'
                   : isStreaming
                     ? `Generating response...${queuedCount > 0 ? ` (${queuedCount} queued)` : ''}`
-                    : 'Ask something... (Cmd+Shift+A)'
+                    : `Ask something... (${focusShortcut})`
               }
               disabled={!isConnected || isStreaming}
               className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors disabled:opacity-40"

@@ -85,4 +85,18 @@ describe('mergeSettings', () => {
     expect(mergeSettings(DEFAULT_SETTINGS, {}).reasoning).toBe(true)
     expect(mergeSettings(DEFAULT_SETTINGS, { reasoning: false }).reasoning).toBe(false)
   })
+
+  it('should merge stored shortcuts and keep content protection on by default', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, { shortcuts: { screenshot: 'Alt+F2', toggleOverlay: 'G' } })
+    expect(merged.shortcuts.screenshot).toBe('Alt+F2')
+    expect(merged.shortcuts.toggleOverlay).toBe('CommandOrControl+Shift+G')
+    expect(merged.hideFromScreenShare).toBe(true)
+    expect(mergeSettings(DEFAULT_SETTINGS, { hideFromScreenShare: false }).hideFromScreenShare).toBe(false)
+  })
+
+  it('should not share the shortcuts object with the defaults', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, null)
+    merged.shortcuts.screenshot = 'Alt+F3'
+    expect(DEFAULT_SETTINGS.shortcuts.screenshot).toBe('CommandOrControl+Shift+S')
+  })
 })

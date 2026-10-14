@@ -165,4 +165,12 @@ describe('HelpPanel', () => {
       expect(screen.getByText(/nothing is loaded from the internet/)).toBeInTheDocument()
     })
   })
+
+  describe('configured shortcuts', () => {
+    it('should show the shortcuts from Settings', () => {
+      render(<HelpPanel {...defaultProps} shortcuts={{ toggleOverlay: 'Alt+F1', screenshot: 'CommandOrControl+Shift+S', cropScreenshot: 'CommandOrControl+Shift+X', focusInput: 'CommandOrControl+Shift+A' }} />)
+      expect(screen.getByText('Option+F1')).toBeInTheDocument()
+      expect(screen.getByText(/Use Option\+F1 to bring it back/)).toBeInTheDocument()
+    })
+  })
 })

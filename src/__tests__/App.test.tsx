@@ -96,4 +96,17 @@ describe('App', () => {
       expect(overlayWrapper).not.toBeNull()
     })
   })
+
+  describe('screen sharing protection', () => {
+    it('should hide the overlay from screen sharing at startup', async () => {
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.setContentProtection).toHaveBeenCalledWith(true))
+    })
+
+    it('should apply a stored choice to show it', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { hideFromScreenShare: false } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.setContentProtection).toHaveBeenLastCalledWith(false))
+    })
+  })
 })

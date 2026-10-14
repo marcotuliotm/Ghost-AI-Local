@@ -346,4 +346,52 @@ describe('SettingsPanel', () => {
       expect(screen.getByText(/does not reason/)).toBeInTheDocument()
     })
   })
+
+  describe('shortcuts', () => {
+    it('should list the configured shortcuts', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      expect(screen.getByLabelText('Shortcut for Show/Hide overlay')).toHaveTextContent('Cmd+Shift+G')
+      expect(screen.getByLabelText('Shortcut for Focus text input')).toHaveTextContent('Cmd+Shift+A')
+    })
+
+    it('should save a recorded shortcut', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      const button = screen.getByLabelText('Shortcut for Capture screenshot & analyze')
+      fireEvent.click(button)
+      fireEvent.keyDown(button, { key: '1', code: 'Digit1', metaKey: true, altKey: true })
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings.mock.calls[0][0].shortcuts.screenshot).toBe('CommandOrControl+Alt+1')
+    })
+
+    it('should block saving two actions with the same shortcut', () => {
+      render(<SettingsPanel {...defaultProps} />)
+      const button = screen.getByLabelText('Shortcut for Focus text input')
+      fireEvent.click(button)
+      fireEvent.keyDown(button, { key: 'g', code: 'KeyG', metaKey: true, shiftKey: true })
+      expect(screen.getAllByText('Used by another action')).toHaveLength(2)
+      expect(screen.getByText('Save')).toBeDisabled()
+
+      fireEvent.click(screen.getByText('Reset'))
+      expect(screen.queryByText('Used by another action')).toBeNull()
+      expect(screen.getByText('Save')).not.toBeDisabled()
+    })
+
+    it('should report a saved shortcut another app owns', () => {
+      render(<SettingsPanel {...defaultProps} shortcutErrors={['screenshot']} />)
+      expect(screen.getByText('In use by another app')).toBeInTheDocument()
+    })
+  })
+
+  describe('screen sharing', () => {
+    it('should hide the overlay from screen sharing by default and save the choice', () => {
+      const onUpdateSettings = vi.fn()
+      render(<SettingsPanel {...defaultProps} onUpdateSettings={onUpdateSettings} />)
+      const toggle = screen.getByLabelText('Hide from screen sharing')
+      expect(toggle).toBeChecked()
+      fireEvent.click(toggle)
+      fireEvent.click(screen.getByText('Save'))
+      expect(onUpdateSettings).toHaveBeenCalledWith(expect.objectContaining({ hideFromScreenShare: false }))
+    })
+  })
 })
