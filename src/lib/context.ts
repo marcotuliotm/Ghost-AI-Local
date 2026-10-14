@@ -139,11 +139,12 @@ export function composeTranscriptContext(summary: string, recent: string, maxTok
 }
 
 // Wrap the transcript context as a system message. Speaker labels come from
-// AudioCapture: "You" is the user's mic, A/B/C/Other are the other side.
+// AudioCapture: "You" is the user's mic; A/B/C/Other (or names the user gave
+// them) are the other side.
 export function transcriptSystemMessage(context: string): OllamaMessage | null {
   if (!context.trim()) return null
   return {
     role: 'system',
-    content: `Live transcript of the conversation the user is in (speaker "You" is the user; A, B, C or "Other" are other participants). Use it as context for your answers:\n\n${context}`,
+    content: `Live transcript of the conversation the user is in (when labeled, each line starts with who is speaking: "You" is the user; any other label (a name, or A, B, C, "Other") is another participant). Use it as context for your answers:\n\n${context}`,
   }
 }

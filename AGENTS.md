@@ -32,7 +32,7 @@ Ghost-AI-Local/
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
-│   │   ├── AudioCapture.tsx  # Audio capture: source toggle, per-channel PCM, Whisper transcription, speaker diarization (You/A/B/C), Auto mode, auto-restart on stream death
+│   │   ├── AudioCapture.tsx  # Audio UI: source/Speakers/Questions/Auto controls, transcript (renamable speakers), action buttons; wires the audio hooks
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
@@ -42,18 +42,27 @@ Ghost-AI-Local/
 │   ├── hooks/
 │   │   ├── useGhostAI.ts     # Core hook: Ollama streaming, settings, connection check, token-budgeted history
 │   │   ├── useTranscriptContext.ts # Progressive transcript summary → per-request context
+│   │   ├── useAudioGraph.ts  # Capture lifecycle: streams, AudioWorklet, VAD segmenters, level meter, auto-restart
+│   │   ├── useTranscriptionQueue.ts # Serial Whisper queue (spoken order, drops oldest past 30)
+│   │   ├── useDiarization.ts # Speakers mode: embedding model + clustering → You / A / B / C / Other
+│   │   ├── useAutoSend.ts    # Auto timer: sends only the new text, retries when declined
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking, model/language, reload detection
 │   ├── lib/
 │   │   ├── csp.ts            # Renderer Content-Security-Policy (injected by vite.config.mts)
+│   │   ├── audio.ts          # AudioWorklet source/loader, capture node, 16 kHz resampling, silence/hallucination filters
 │   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
+│   │   ├── diarization.ts    # SpeakerClusterer (online cosine clustering of voice embeddings)
+│   │   ├── echo.ts           # Echo detection for Both mode (word-overlap similarity, EchoFilter)
 │   │   ├── filename.ts       # AI-generated file names (shared by every Save) + date stamps
 │   │   ├── notes.ts          # Meeting notes: prompt, budget fitting, Markdown export
 │   │   ├── ollama.ts         # Local-URL check, cloud-model detection, stream-line parsing (also used by electron/main.ts)
 │   │   ├── presets.ts        # Built-in prompt presets, CRUD, merge/validation, {{transcript}} filling
+│   │   ├── questions.ts      # isQuestion heuristic (EN/PT/ES) for Questions mode
 │   │   ├── screenshot.ts     # Native (Retina) capture size, downscale for full screenshots
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
 │   │   ├── settings.ts       # mergeSettings(): stored settings over DEFAULT_SETTINGS
 │   │   ├── shortcuts.ts      # Default/validated global shortcuts, key-event recording, labels (also used by electron/main.ts)
+│   │   ├── transcript.ts     # TranscriptSegment, merging, formatting with speaker names, echo retraction
 │   │   └── whisper.ts        # Whisper models/languages + pipeline options (also imported by electron/main.ts)
 │   └── styles/
 │       └── globals.css       # TailwindCSS + custom glass/animation styles
@@ -186,12 +195,23 @@ interface ChatMessage {
 
 ## Critical Technical Decisions
 
-### Speaker diarization (hybrid: channel + voice clustering)
-"Speakers" mode in `AudioCapture.tsx` labels who is talking. It combines two signals:
-1. **Channel separation** — mic and system audio are captured into **separate PCM buffers** (`micChunksRef` / `systemChunksRef`) instead of being merged. Mic = "You"; system = the other side.
-2. **Voice clustering (A/B/C)** — each system-audio chunk is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by cosine similarity (threshold = `settings.speakerThreshold`, read via `speakerThresholdRef`; dot product since vectors are normalized); new speakers get the next letter (A, B, C…).
+### Audio capture structure
+`AudioCapture.tsx` is the UI; the work is in hooks: `useAudioGraph` (streams → AudioWorklet → per-channel `SpeechSegmenter`, level meter, duration, ScreenCaptureKit auto-restart) emits closed segments to `useTranscriptionQueue` (serial, spoken order), whose processor (`processSegment` in the component) resamples to 16 kHz, runs Whisper (`useWhisper`), filters silence/hallucinations and echo, labels the speaker (`useDiarization`) and appends to the transcript. `useAutoSend` owns the Auto timer. The component keeps the transcript in state and mirrors it in refs (`updateSegments`) so the queue and the timers read the latest text without waiting for a re-render. Pure pieces live in `src/lib/` (`audio`, `transcript`, `diarization`, `echo`, `questions`, `segmenter`).
 
-The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker chunks merge). A formatted string (`You: … / A: …`) is what gets passed to Ollama, saved, and used as chat context. If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per transcription chunk, so speakers that overlap within a chunk share a label; the **Speaker Separation** setting (`settings.speakerThreshold`, default 0.85, exposed as a Settings slider) is the accuracy knob — higher separates more speakers, lower merges similar voices, and it applies live to the next chunk.
+### Speaker diarization (hybrid: channel + voice clustering)
+"Speakers" mode labels who is talking. It combines two signals:
+1. **Channel separation** — mic and system audio go through separate segmenters, so each segment has one channel. Mic = "You"; system = the other side.
+2. **Voice clustering (A/B/C)** — each system-audio segment is sent to a local speaker-embedding model (`Xenova/wavlm-base-plus-sv` via `@huggingface/transformers`, loaded in the main process like Whisper). The returned L2-normalized embedding is clustered online by `SpeakerClusterer` (`src/lib/diarization.ts`, cosine similarity = dot product, threshold = `settings.speakerThreshold` read live); new speakers get the next letter (A, B, C…).
+
+The transcript is stored as `TranscriptSegment[] = { speaker, text }` (consecutive same-speaker segments merge). If the embedding model isn't ready or fails, system speech falls back to the label "Other" (channel-only) — it never crashes. Clustering granularity is one label per segment, so speakers that overlap within a segment share a label; the **Speaker Separation** setting (default 0.85) is the accuracy knob — higher separates more speakers, lower merges similar voices.
+
+**Renaming speakers:** clicking an A/B/C/Other chip opens an inline name field (Enter saves, Esc cancels, empty restores the label; "You" can't be renamed). Names (`speakerNames`) are applied when formatting (`formatSegments(segments, names)`), so the formatted string (`You: … / Maria: …`) that goes to Ollama, notes and saved files uses them retroactively. `onTranscriptChange(text, speakers)` also hands the parent the displayed speaker list, which `Overlay` passes to `buildMeetingNotesRequest` for action-item owners. Prompts describe labels generically ("You" is the user; any other label — a name, or A/B/C/Other — is another participant). Names reset with a new recording or Clear, since labels are re-assigned. Renaming changes the transcript string, so `useTranscriptContext` re-summarizes from scratch.
+
+### Questions mode
+A "Questions" toggle (next to Auto, when the source includes system audio) answers as soon as the other side asks something: after each system-audio segment, `isQuestion` (`src/lib/questions.ts`: last sentence ends with "?", or starts with an EN/PT/ES interrogative opening and has ≥3 words; "porque"/"que" are excluded since they open statements) triggers `onTranscription("<speaker>: <question>")` — the same path as Suggest reply. A cooldown (`QUESTION_COOLDOWN_MS`, 8s) avoids firing twice for a question split across segments. When it fires, Auto is told that text was sent (`markSent`), so it isn't sent again.
+
+### Echo filtering (Both mode)
+Without headphones the mic hears the call from the speakers (Chromium's echo cancellation only covers audio this page plays), so the same words would appear as the other side *and* as "You". In Both mode `EchoFilter` (`src/lib/echo.ts`) remembers recent texts per channel for 8s (by when the segment closed): a mic text whose words overlap ≥60% with a recent system text (overlap coefficient, accents/punctuation ignored, ≥3 words) is dropped; if the mic text was transcribed first, it is retracted from the transcript when the matching system text arrives (`removeTrailingText`). Different sentences on the two channels are kept.
 
 ### Context management (num_ctx + token budget)
 Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context, systemPrompt?, standalone?, kind? })` builds: system prompt (the active preset's, unless overridden) → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`). `standalone: true` leaves the chat history out (meeting notes).
@@ -244,11 +264,11 @@ The transcript div uses `resize-y` with Tailwind classes (`h-24 min-h-[48px] max
 ### Model and preset switching from the title bar
 `Overlay.tsx` receives `models` (from `useGhostAI`) and `updateSettings` props. The model-switcher dropdown calls `updateSettings({ selectedModel })` directly — no navigation to Settings required. The preset switcher next to it uses the same dropdown pattern (and `useClickOutside`) with `updateSettings({ activePresetId })`.
 
-### Auto button uses `useRef` to avoid stale closures
-The `setInterval` in AudioCapture would capture a stale `autoSend` value. Instead, `autoSendRef = useRef(autoSend)` is kept in sync, and the interval callback reads `autoSendRef.current`. The Auto interval itself is a separate ref (`autoSendIntervalRef`, 10-120s) so changing the cadence from the UI restarts the timer without reloading Whisper.
+### Auto mode (`useAutoSend`)
+The timer is an effect on `[enabled, recording, interval]`, so it stops during a stream auto-restart and resumes after, and a new interval (10-120s) restarts it without reloading Whisper. The transcript getter and the send callback are read through refs, so the timer never sees stale values. Each tick sends only `transcriptDelta` since the last accepted send; a declined send (reply still streaming) is retried on the next tick.
 
 ### Audio stream auto-restart (macOS ScreenCaptureKit)
-System-audio capture via `getDisplayMedia({ audio: 'loopback' })` can be killed by macOS after ~20 minutes (ScreenCaptureKit timeout). When the underlying track emits `onended`, `AudioCapture` sets `streamDied = true`, which triggers a `useEffect` that tears down the dead audio graph and re-requests the streams for the previously selected source — without clearing the accumulated transcript, the auto-send timer, or the duration counter.
+System-audio capture via `getDisplayMedia({ audio: 'loopback' })` can be killed by macOS after ~20 minutes (ScreenCaptureKit timeout). When the underlying track emits `onended`, `useAudioGraph` sets `streamDied = true`, which triggers an effect that flushes the open segments, tears down the dead graph and re-requests the streams for the previously selected source — without clearing the transcript, Auto, or the duration counter.
 
 ### Tray and crop window
 `createTray()` is gated behind `!VITE_DEV_SERVER_URL` (triggers `SetApplicationIsDaemon` on unsigned dev builds). Its menu labels show the configured shortcuts (`updateTrayMenu`) and its Screenshot items run the same action as the shortcuts. The crop window created by `captureScreenshotCrop` opens on the display under the pointer, runs an inline `data:` URL page with a fullscreen canvas (background preview as JPEG to keep Retina captures small), hides the main window during selection, cuts the crop from the native-resolution image and restores the window's bounds + visibility on finish.
@@ -296,7 +316,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
      onNewAction(transcript.trim())
    }, [transcript, onNewAction])
    ```
-4. **Add the button** in the button row (after Summarize/Summary PT, before Save)
+4. **Add the button** in the button row (after Summarize/Summary PT/Notes, before Save). Capture/transcription logic belongs in the audio hooks (`src/hooks/useAudioGraph.ts` etc.) or `src/lib/`, not in the component
 5. **Wire it in `Overlay.tsx`** by passing the callback with the appropriate prompt to `sendMessage()`
 6. **Document in `HelpPanel.tsx`** under "Audio Buttons" section
 
@@ -351,7 +371,7 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **375 tests** across 23 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **410 tests** across 31 test files under `src/__tests__/`.
 
 ### Running tests
 

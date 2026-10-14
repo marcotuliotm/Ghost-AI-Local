@@ -10,6 +10,7 @@ vi.mock('../components/AudioCapture', () => ({
   AudioCapture: (props: any) => (
     <div>
       <button onClick={() => props.onTranscriptChange?.('A: can you send the draft by Friday?\nYou: yes, I will')}>set-transcript</button>
+      <button onClick={() => props.onTranscriptChange?.('Maria: can you send the draft?\nYou: yes', ['Maria', 'You'])}>set-named-transcript</button>
       <button onClick={() => props.onNotes?.()}>stub-notes</button>
       <span>{props.canLoadWhisper ? 'whisper-allowed' : 'whisper-waiting'}</span>
     </div>
@@ -128,5 +129,15 @@ describe('Overlay meeting notes', () => {
     expect(screen.getByText('whisper-waiting')).toBeInTheDocument()
     rerender(<Overlay {...props} sendMessage={vi.fn()} settingsLoaded={true} />)
     expect(screen.getByText('whisper-allowed')).toBeInTheDocument()
+  })
+
+  it('should assign action items to renamed speakers', () => {
+    const sendMessage = vi.fn()
+    render(<Overlay {...props} sendMessage={sendMessage} />)
+    fireEvent.click(screen.getByText('set-named-transcript'))
+    fireEvent.click(screen.getByText('stub-notes'))
+    const options = sendMessage.mock.calls[0][2]
+    expect(options.context).toContain('Maria: can you send the draft?')
+    expect(options.systemPrompt).toContain('(Maria, You;')
   })
 })

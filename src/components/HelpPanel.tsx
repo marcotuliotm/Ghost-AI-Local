@@ -141,12 +141,12 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelPr
                 </div>
               }
               label="Audio Source"
-              description="Mic = your microphone | System = audio from meetings/videos/calls | Both = mic + system on separate channels"
+              description="Mic = your microphone | System = audio from meetings/videos/calls | Both = mic + system on separate channels (when the mic picks up the speakers, the repeated text is dropped)"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Speakers</span>}
               label="Speakers (diarization)"
-              description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. First use downloads a small speaker model."
+              description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. Click a label to rename it (e.g. A → Maria); the name is used in suggestions, notes and saved files. First use downloads a small speaker model."
             />
             <ButtonRow
               icon={
@@ -156,6 +156,11 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelPr
               }
               label="Record / Stop"
               description="Starts or stops audio capture. Audio is transcribed locally by Whisper, using the model and language chosen in Settings (a model change made while recording applies after Stop). If macOS kills the stream (~20 min), it auto-reconnects"
+            />
+            <ButtonRow
+              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Questions</span>}
+              label="Questions"
+              description="While recording the other side (System or Both): as soon as they ask a question, a reply is suggested right away instead of waiting for the Auto timer"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}

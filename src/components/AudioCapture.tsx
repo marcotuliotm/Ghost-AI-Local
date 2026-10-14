@@ -1,7 +1,22 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useWhisper } from '../hooks/useWhisper'
-import { SpeechSegmenter } from '../lib/segmenter'
-import { transcriptDelta, transcriptTail } from '../lib/context'
+import { useAudioGraph, type AudioSource } from '../hooks/useAudioGraph'
+import { useTranscriptionQueue, type QueuedSegment } from '../hooks/useTranscriptionQueue'
+import { useDiarization } from '../hooks/useDiarization'
+import { useAutoSend } from '../hooks/useAutoSend'
+import { hasAudioEnergy, isHallucination, resampleTo16kHz } from '../lib/audio'
+import {
+  appendToSegments,
+  displaySpeaker,
+  formatSegments,
+  removeTrailingText,
+  transcriptSpeakers,
+  type SpeakerNames,
+  type TranscriptSegment,
+} from '../lib/transcript'
+import { EchoFilter } from '../lib/echo'
+import { isQuestion, QUESTION_COOLDOWN_MS } from '../lib/questions'
+import { transcriptTail } from '../lib/context'
 import { fileStamp, suggestFilename } from '../lib/filename'
 
 interface AudioCaptureProps {
@@ -12,7 +27,8 @@ interface AudioCaptureProps {
   onSummarizePT: () => void
   // Generate meeting notes from the transcript (parent builds the request)
   onNotes?: () => void
-  onTranscriptChange?: (text: string) => void
+  // Formatted transcript (custom speaker names applied) and its speakers
+  onTranscriptChange?: (text: string, speakers: string[]) => void
   isConnected: boolean
   // False until persisted settings are loaded, so Whisper doesn't start
   // downloading the default model when another one was saved.
@@ -27,140 +43,12 @@ interface AudioCaptureProps {
   }
 }
 
-type CaptureStatus = 'idle' | 'requesting' | 'listening' | 'error'
-type AudioSource = 'mic' | 'system' | 'both'
-type Channel = 'mic' | 'system'
-
-// A piece of transcript attributed to a speaker. speaker '' means unlabeled
-// (diarization off) — rendered as a plain flowing paragraph.
-interface TranscriptSegment {
-  speaker: string // 'You' | 'A' | 'B' | 'C' | 'Other' | ''
-  text: string
-}
-
-// Default cosine-similarity threshold for grouping system-audio chunks into the
-// same speaker. Embeddings are L2-normalized, so dot product == cosine similarity.
-// wavlm-base-plus-sv was tuned around 0.86 (same speaker scores above, different
-// speakers below). Lower → speakers merge into one; higher → one person splits
-// into several. User-tunable via Settings (settings.speakerThreshold).
-const DEFAULT_SPEAKER_THRESHOLD = 0.85
-
 // Manual "Suggest reply" sends this much of the end of the transcript as the
 // excerpt to answer (the full conversation goes along as context).
 const SUGGEST_REPLY_TAIL_TOKENS = 300
 
-// Segments waiting for Whisper. If Whisper falls this far behind real time,
-// the oldest are dropped rather than letting latency grow without bound.
-const MAX_QUEUED_SEGMENTS = 30
-
-interface QueuedSegment {
-  channel: Channel
-  audio: Float32Array
-  sampleRate: number
-}
-
-// Capture processor run on the audio rendering thread. Batches 128-sample
-// render quanta into 2048-sample blocks before posting them to the main thread.
-const CAPTURE_WORKLET_SOURCE = `
-class GhostCaptureProcessor extends AudioWorkletProcessor {
-  constructor() { super(); this.buf = new Float32Array(2048); this.n = 0 }
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0]
-    if (ch) {
-      for (let i = 0; i < ch.length; i++) {
-        this.buf[this.n++] = ch[i]
-        if (this.n === this.buf.length) {
-          this.port.postMessage(this.buf, [this.buf.buffer])
-          this.buf = new Float32Array(2048)
-          this.n = 0
-        }
-      }
-    }
-    return true
-  }
-}
-registerProcessor('ghost-capture', GhostCaptureProcessor)
-`
-
-// Load the capture worklet into this context. Returns false when AudioWorklet
-// isn't available (or fails to load), in which case ScriptProcessor is used.
-async function loadCaptureWorklet(ctx: AudioContext): Promise<boolean> {
-  if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined') return false
-  const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }))
-  try {
-    await ctx.audioWorklet.addModule(url)
-    return true
-  } catch (err) {
-    console.warn('[AudioCapture] AudioWorklet failed to load, using ScriptProcessor:', err)
-    return false
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
-function createCaptureNode(ctx: AudioContext, useWorklet: boolean, onData: (samples: Float32Array) => void): AudioNode {
-  if (useWorklet) {
-    const node = new AudioWorkletNode(ctx, 'ghost-capture', {
-      numberOfInputs: 1,
-      numberOfOutputs: 1,
-      outputChannelCount: [1],
-      channelCount: 1,
-      channelCountMode: 'explicit', // downmix stereo loopback to mono
-    })
-    node.port.onmessage = (e: MessageEvent<Float32Array>) => onData(e.data)
-    return node
-  }
-  // Fallback (and jsdom tests): deprecated main-thread ScriptProcessor
-  const processor = ctx.createScriptProcessor(4096, 1, 1)
-  processor.onaudioprocess = (e) => onData(new Float32Array(e.inputBuffer.getChannelData(0)))
-  return processor
-}
-
-// Known Whisper hallucination patterns when audio is silence/noise
-const HALLUCINATION_PATTERNS = [
-  /^you\.?$/i,
-  /^the\.?$/i,
-  /^thank you\.?$/i,
-  /^thanks for watching\.?$/i,
-  /^bye\.?$/i,
-  /^okay\.?$/i,
-  /^uh\.?$/i,
-  /^um\.?$/i,
-  /^\.+$/,
-  /^\s*$/,
-]
-
-function isHallucination(text: string): boolean {
-  const trimmed = text.trim()
-  if (trimmed.length === 0) return true
-  if (trimmed.length < 3) return true
-  return HALLUCINATION_PATTERNS.some(p => p.test(trimmed))
-}
-
-function hasAudioEnergy(audio: Float32Array, threshold = 0.002): boolean {
-  let sum = 0
-  for (let i = 0; i < audio.length; i++) {
-    sum += audio[i] * audio[i]
-  }
-  const rms = Math.sqrt(sum / audio.length)
-  return rms > threshold
-}
-
-function dot(a: number[], b: number[]): number {
-  let s = 0
-  const n = Math.min(a.length, b.length)
-  for (let i = 0; i < n; i++) s += a[i] * b[i]
-  return s
-}
-
-// Format labeled segments into text for Ollama / save / context. Labels give
-// the LLM useful turn-taking context ("You: ... / Speaker A: ...").
-function formatSegments(segs: TranscriptSegment[]): string {
-  return segs
-    .map(s => (s.speaker ? `${s.speaker}: ${s.text}` : s.text))
-    .join('\n')
-    .trim()
-}
+// Speaker labels that can be renamed ("You" is the user, '' is unlabeled)
+const isRenamable = (label: string) => label !== '' && label !== 'You'
 
 // Visual style per speaker label
 function speakerChipClass(label: string): string {
@@ -174,92 +62,117 @@ function speakerChipClass(label: string): string {
   }
 }
 
-async function resampleTo16kHz(audioData: Float32Array, fromSampleRate: number): Promise<Float32Array> {
-  if (fromSampleRate === 16000) return audioData
-  const numOutputSamples = Math.round(audioData.length * 16000 / fromSampleRate)
-  const offlineCtx = new OfflineAudioContext(1, numOutputSamples, 16000)
-  const buffer = offlineCtx.createBuffer(1, audioData.length, fromSampleRate)
-  buffer.copyToChannel(new Float32Array(audioData) as unknown as Float32Array<ArrayBuffer>, 0)
-  const source = offlineCtx.createBufferSource()
-  source.buffer = buffer
-  source.connect(offlineCtx.destination)
-  source.start()
-  const rendered = await offlineCtx.startRendering()
-  return new Float32Array(rendered.getChannelData(0))
-}
-
 /**
  * AudioCapture - 100% local audio transcription with speaker separation.
  *
  * Sources:
  * - Mic: your microphone (labeled "You")
  * - System: desktop audio (meetings/videos) — diarized into Speaker A/B/C
- * - Both: mic + system, captured on separate channels
+ * - Both: mic + system, captured on separate channels (mic echo of the
+ *   speakers is filtered out)
  *
- * Hybrid diarization: mic vs system is split by channel ("You" vs the other
- * side). When "Speakers" is enabled, system-audio chunks are additionally
- * fingerprinted with a local speaker-embedding model and clustered into A/B/C.
- *
- * Flow: each channel → AudioWorklet PCM → VAD segmenter (closes on a pause or at
- * the transcription interval) → serial queue → Whisper (text) [+ embedding for
- * system] → labeled transcript
+ * Pieces: useAudioGraph (streams → AudioWorklet → VAD segments, auto-restart)
+ * → useTranscriptionQueue (serial) → Whisper (useWhisper) + useDiarization
+ * (You / A / B / C) → labeled transcript. useAutoSend and the Questions mode
+ * send excerpts to the parent for reply suggestions.
  */
 export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNotes, onTranscriptChange, isConnected, canLoadWhisper = true, settings }: AudioCaptureProps) {
-  const [status, setStatus] = useState<CaptureStatus>('idle')
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [audioLevel, setAudioLevel] = useState(0)
-  const [duration, setDuration] = useState(0)
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
-  const [isTranscribing, setIsTranscribing] = useState(false)
-  const [autoSend, setAutoSend] = useState(false)
-  const [autoSendInterval, setAutoSendInterval] = useState(30)
+  const [speakerNames, setSpeakerNames] = useState<SpeakerNames>({})
+  // Speaker label being renamed (inline input) and its draft name
+  const [renaming, setRenaming] = useState<{ label: string; draft: string } | null>(null)
+  const [questionsMode, setQuestionsMode] = useState(false)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
-  const [streamDied, setStreamDied] = useState(false)
   // After Stop, offer to turn the transcript into meeting notes
   const [offerNotes, setOfferNotes] = useState(false)
 
-  // Speaker diarization (A/B/C) toggle + embedding model status
-  const [diarize, setDiarize] = useState(false)
-  const [embedStatus, setEmbedStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [embedProgress, setEmbedProgress] = useState(0)
-
-  const autoSendRef = useRef(false)
-  const autoSendIntervalRef = useRef(30)
-  const autoSendTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastAutoSentRef = useRef('')
-  const onTranscriptionRef = useRef(onTranscription)
-  const restartingRef = useRef(false)
-  const audioSourceRef = useRef<AudioSource>('system')
-  const diarizeRef = useRef(false)
-  const embedReadyRef = useRef(false)
-
-  // Online speaker clustering state (system audio only)
-  const speakerCentroidsRef = useRef<{ label: string; centroid: number[]; count: number }[]>([])
-  const speakerThresholdRef = useRef(settings.speakerThreshold ?? DEFAULT_SPEAKER_THRESHOLD)
-
-  const streamsRef = useRef<MediaStream[]>([])
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const captureNodesRef = useRef<AudioNode[]>([])
-  const animationFrameRef = useRef<number | null>(null)
-  const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const isListeningRef = useRef(false)
-  // One VAD segmenter per channel so speech is attributed to mic vs system
-  const segmentersRef = useRef<Partial<Record<Channel, SpeechSegmenter>>>({})
-  // Closed segments waiting for Whisper, transcribed one at a time in order
-  const queueRef = useRef<QueuedSegment[]>([])
-  const drainPromiseRef = useRef<Promise<void> | null>(null)
-  const transcriptionIntervalRef = useRef(settings.transcriptionInterval || 10)
+  // Read inside the transcription queue (outside the render cycle)
+  const segmentsRef = useRef<TranscriptSegment[]>([])
+  const namesRef = useRef<SpeakerNames>({})
+  namesRef.current = speakerNames
   const lastTranscriptRef = useRef('')
+  const onTranscriptionRef = useRef(onTranscription)
+  onTranscriptionRef.current = onTranscription
+  const questionsRef = useRef(questionsMode)
+  questionsRef.current = questionsMode
+  const lastQuestionAtRef = useRef(0)
+  const echoRef = useRef(new EchoFilter())
+  const echoActiveRef = useRef(false)
+  // The last mic text appended (retracted if system audio turns out to repeat it)
+  const lastMicAppendRef = useRef<{ speaker: string; text: string } | null>(null)
   const transcriptScrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
 
   const {
     status: whisperStatus, progress, progressMessage, error: whisperError, needsReload, loadModel, transcribe,
   } = useWhisper(settings.whisperModel, settings.transcriptionLanguage)
+  const diarization = useDiarization(settings.speakerThreshold)
+  const { enabled: diarize, setEnabled: setDiarize, embedStatus, embedProgress, loadEmbed } = diarization
 
-  // Derived plain-text transcript (with speaker labels) for consumers
-  const transcriptText = formatSegments(segments)
+  // Derived plain-text transcript (speaker names applied) for consumers
+  const transcriptText = useMemo(() => formatSegments(segments, speakerNames), [segments, speakerNames])
+  const speakers = useMemo(() => transcriptSpeakers(segments, speakerNames), [segments, speakerNames])
+
+  // Update the transcript synchronously in refs too, so the queue (and Auto)
+  // see the latest text before React re-renders.
+  const updateSegments = useCallback((fn: (segs: TranscriptSegment[]) => TranscriptSegment[]) => {
+    const next = fn(segmentsRef.current)
+    if (next === segmentsRef.current) return
+    segmentsRef.current = next
+    lastTranscriptRef.current = formatSegments(next, namesRef.current)
+    setSegments(next)
+  }, [])
+
+  // Transcribe one closed speech segment and attribute it to a speaker.
+  const processSegment = useCallback(async ({ channel, audio, sampleRate, endedAt }: QueuedSegment) => {
+    if (!hasAudioEnergy(audio)) return
+
+    const resampled = await resampleTo16kHz(audio, sampleRate)
+    const text = await transcribe(resampled)
+    if (!text || text.length === 0 || isHallucination(text)) return
+
+    // Both mode without headphones: the mic also hears the speakers. Drop mic
+    // text that repeats what system audio just said, and retract the last mic
+    // text if system audio arrives with the same words afterwards.
+    if (echoActiveRef.current) {
+      const echo = echoRef.current
+      if (channel === 'mic' && echo.match('system', text, endedAt)) return
+      if (channel === 'system') {
+        const micText = echo.match('mic', text, endedAt)
+        const lastMic = lastMicAppendRef.current
+        if (micText && lastMic && lastMic.text === micText) {
+          updateSegments(segs => removeTrailingText(segs, lastMic.speaker, micText))
+          echo.forget('mic', micText)
+          lastMicAppendRef.current = null
+        }
+      }
+      echo.record(channel, text, endedAt)
+    }
+
+    const speaker = await diarization.labelFor(channel, resampled)
+    updateSegments(segs => appendToSegments(segs, speaker, text))
+    lastMicAppendRef.current = channel === 'mic' ? { speaker, text } : null
+
+    // Questions mode: answer as soon as the other side asks something
+    const now = Date.now()
+    if (channel === 'system' && questionsRef.current && isQuestion(text) && now - lastQuestionAtRef.current >= QUESTION_COOLDOWN_MS) {
+      const label = speaker ? `${displaySpeaker(speaker, namesRef.current)}: ` : ''
+      if (onTranscriptionRef.current(`${label}${text}`) !== false) {
+        lastQuestionAtRef.current = now
+        // Auto shouldn't send the same question again
+        markAutoSent(lastTranscriptRef.current)
+      }
+    }
+  }, [transcribe, diarization.labelFor, updateSegments])
+
+  const queue = useTranscriptionQueue(processSegment)
+  const graph = useAudioGraph({ onSegment: queue.enqueue, maxSegmentSeconds: settings.transcriptionInterval })
+  const { status, errorMsg, setErrorMsg, audioLevel, duration, streamDied } = graph
+  const isTranscribing = queue.isTranscribing
+
+  const autoSend = useAutoSend(status === 'listening', () => lastTranscriptRef.current, delta => onTranscriptionRef.current(delta))
+  const { enabled: autoSendOn, setEnabled: setAutoSend, intervalSec: autoSendInterval, changeInterval, markSent: markAutoSent } = autoSend
 
   // A model switch can't happen mid-recording: the pipeline in use would be
   // disposed. It is applied once capture stops (and the queue has drained).
@@ -273,80 +186,11 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
     }
   }, [canLoadWhisper, whisperStatus, needsReload, isCapturing, loadModel])
 
-  // Keep onTranscription ref in sync to avoid stale closures in timers
-  useEffect(() => {
-    onTranscriptionRef.current = onTranscription
-  }, [onTranscription])
-
-  // Keep audioSource ref in sync for auto-restart
-  useEffect(() => {
-    audioSourceRef.current = audioSource
-  }, [audioSource])
-
-  // Keep diarize ref in sync (read inside interval callbacks)
-  useEffect(() => {
-    diarizeRef.current = diarize
-  }, [diarize])
-
-  // Keep speaker-threshold ref in sync so Settings changes take effect live
-  useEffect(() => {
-    speakerThresholdRef.current = settings.speakerThreshold ?? DEFAULT_SPEAKER_THRESHOLD
-  }, [settings.speakerThreshold])
-
-  // Max segment length follows Settings live, including mid-recording
-  useEffect(() => {
-    transcriptionIntervalRef.current = settings.transcriptionInterval || 10
-    for (const seg of Object.values(segmentersRef.current)) {
-      seg?.setMaxSegmentSeconds(transcriptionIntervalRef.current)
-    }
-  }, [settings.transcriptionInterval])
-
-  // Keep last transcript + notify parent when transcript changes
+  // Notify parent when the transcript (or a speaker name) changes
   useEffect(() => {
     lastTranscriptRef.current = transcriptText
-    onTranscriptChange?.(transcriptText)
-  }, [transcriptText, onTranscriptChange])
-
-  // Speaker-embedding model: listen for load progress
-  useEffect(() => {
-    const cleanup = window.ghostAPI.onEmbedProgress((data) => {
-      if (data.status === 'download') {
-        setEmbedStatus('loading')
-        setEmbedProgress(data.progress)
-      } else if (data.status === 'ready') {
-        setEmbedStatus('ready')
-        setEmbedProgress(100)
-      } else if (data.status === 'error') {
-        setEmbedStatus('error')
-      }
-    })
-    return cleanup
-  }, [])
-
-  // Keep embedReady ref in sync
-  useEffect(() => {
-    embedReadyRef.current = embedStatus === 'ready'
-  }, [embedStatus])
-
-  const loadEmbed = useCallback(async () => {
-    if (embedStatus === 'ready' || embedStatus === 'loading') return
-    setEmbedStatus('loading')
-    setEmbedProgress(0)
-    try {
-      const r = await window.ghostAPI.embedLoad()
-      if (r.status === 'ready') setEmbedStatus('ready')
-      else if (r.status === 'error') setEmbedStatus('error')
-    } catch {
-      setEmbedStatus('error')
-    }
-  }, [embedStatus])
-
-  // When diarization is turned on, preload the speaker-embedding model
-  useEffect(() => {
-    if (diarize && embedStatus === 'idle') {
-      loadEmbed()
-    }
-  }, [diarize, embedStatus, loadEmbed])
+    onTranscriptChange?.(transcriptText, speakers)
+  }, [transcriptText, speakers, onTranscriptChange])
 
   // Auto-scroll the transcript box to the bottom as new text arrives,
   // unless the user has scrolled up to read earlier content.
@@ -363,413 +207,36 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16
   }, [])
 
-  // One Auto-send pass. The parent may decline (e.g. a reply is still streaming);
-  // in that case keep the text pending so the next tick retries instead of
-  // silently losing that part of the conversation.
-  // Only the part transcribed since the last send goes out; the parent sends
-  // the rest of the conversation as context.
-  const autoSendTick = useCallback(() => {
-    const text = lastTranscriptRef.current.trim()
-    const delta = transcriptDelta(text, lastAutoSentRef.current)
-    if (!delta) return
-    if (onTranscriptionRef.current(delta) === false) return
-    lastAutoSentRef.current = text
-  }, [])
-
-  // Keep autoSend ref in sync + manage auto-send timer
-  useEffect(() => {
-    autoSendRef.current = autoSend
-    if (autoSend && isListeningRef.current) {
-      if (autoSendTimerRef.current) clearInterval(autoSendTimerRef.current)
-      autoSendTimerRef.current = setInterval(autoSendTick, autoSendIntervalRef.current * 1000)
-    } else {
-      if (autoSendTimerRef.current) {
-        clearInterval(autoSendTimerRef.current)
-        autoSendTimerRef.current = null
-      }
-    }
-    return () => {
-      if (autoSendTimerRef.current) {
-        clearInterval(autoSendTimerRef.current)
-        autoSendTimerRef.current = null
-      }
-    }
-  }, [autoSend, autoSendTick])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => { stopCapture() }
-  }, [])
-
-  const stopCapture = useCallback(() => {
-    isListeningRef.current = false
-    if (autoSendTimerRef.current) {
-      clearInterval(autoSendTimerRef.current)
-      autoSendTimerRef.current = null
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
-    }
-    if (durationIntervalRef.current) {
-      clearInterval(durationIntervalRef.current)
-      durationIntervalRef.current = null
-    }
-    for (const node of captureNodesRef.current) {
-      try { node.disconnect() } catch {}
-      if ('port' in node) (node as AudioWorkletNode).port.onmessage = null
-    }
-    captureNodesRef.current = []
-    if (audioContextRef.current) {
-      try { audioContextRef.current.close() } catch {}
-      audioContextRef.current = null
-    }
-    for (const stream of streamsRef.current) {
-      stream.getTracks().forEach(t => t.stop())
-    }
-    streamsRef.current = []
-  }, [])
-
-  // Assign a speaker label (A/B/C...) to a system-audio embedding via online
-  // cosine-similarity clustering. Falls back to 'Other' if no embedding.
-  const assignSpeaker = useCallback((embedding: number[] | null): string => {
-    if (!embedding) return 'Other'
-    const centroids = speakerCentroidsRef.current
-    let best = -1
-    let bestSim = -2
-    for (let i = 0; i < centroids.length; i++) {
-      const sim = dot(embedding, centroids[i].centroid)
-      if (sim > bestSim) { bestSim = sim; best = i }
-    }
-    if (best >= 0 && bestSim >= speakerThresholdRef.current) {
-      const c = centroids[best]
-      const n = c.count
-      const merged = c.centroid.map((v, j) => (v * n + embedding[j]) / (n + 1))
-      let norm = 0
-      for (const v of merged) norm += v * v
-      norm = Math.sqrt(norm) || 1
-      c.centroid = merged.map(v => v / norm)
-      c.count = n + 1
-      return c.label
-    }
-    const label = String.fromCharCode(65 + centroids.length) // A, B, C, ...
-    centroids.push({ label, centroid: embedding.slice(), count: 1 })
-    return label
-  }, [])
-
-  // Append a transcribed piece under a speaker label, merging consecutive
-  // pieces from the same speaker into one paragraph.
-  const appendSegment = useCallback((speaker: string, text: string) => {
-    setSegments(prev => {
-      const last = prev[prev.length - 1]
-      if (last && last.speaker === speaker) {
-        const updated = prev.slice()
-        updated[updated.length - 1] = { ...last, text: `${last.text} ${text}`.trim() }
-        return updated
-      }
-      return [...prev, { speaker, text }]
-    })
-  }, [])
-
-  // Transcribe one closed speech segment and attribute it to a speaker.
-  const transcribeSegment = useCallback(async ({ channel, audio, sampleRate }: QueuedSegment) => {
-    if (!hasAudioEnergy(audio)) return
-
-    const resampled = await resampleTo16kHz(audio, sampleRate)
-    const text = await transcribe(resampled)
-    if (!text || text.length === 0 || isHallucination(text)) return
-
-    // Decide the speaker label
-    let speaker = ''
-    if (diarizeRef.current) {
-      if (channel === 'mic') {
-        speaker = 'You'
-      } else {
-        // System audio → fingerprint + cluster into A/B/C (or 'Other' if model not ready)
-        let embedding: number[] | null = null
-        if (embedReadyRef.current) {
-          try {
-            const res = await window.ghostAPI.embedSpeaker(resampled.buffer as ArrayBuffer)
-            if (res.success && res.embedding) embedding = res.embedding
-          } catch { /* ignore embedding failures */ }
-        }
-        speaker = assignSpeaker(embedding)
-      }
-    }
-
-    appendSegment(speaker, text)
-  }, [transcribe, assignSpeaker, appendSegment])
-
-  // Transcribe queued segments one at a time, in the order they were spoken.
-  // Returns the running pass if there is one, so callers can await the backlog.
-  const drainQueue = useCallback((): Promise<void> => {
-    if (drainPromiseRef.current) return drainPromiseRef.current
-    if (queueRef.current.length === 0) return Promise.resolve()
-    const run = async () => {
-      setIsTranscribing(true)
-      try {
-        let item: QueuedSegment | undefined
-        while ((item = queueRef.current.shift())) {
-          try {
-            await transcribeSegment(item)
-          } catch (err) {
-            console.error('Transcription error:', err)
-          }
-        }
-      } finally {
-        setIsTranscribing(false)
-      }
-    }
-    drainPromiseRef.current = run().finally(() => { drainPromiseRef.current = null })
-    return drainPromiseRef.current
-  }, [transcribeSegment])
-
-  // Audio callbacks are created once per graph; read the latest drainQueue via a ref.
-  const drainQueueRef = useRef(drainQueue)
-  useEffect(() => {
-    drainQueueRef.current = drainQueue
-  }, [drainQueue])
-
-  const enqueueSegment = useCallback((segment: QueuedSegment) => {
-    const queue = queueRef.current
-    queue.push(segment)
-    if (queue.length > MAX_QUEUED_SEGMENTS) {
-      queue.shift()
-      console.warn('[AudioCapture] Whisper is falling behind; dropped the oldest queued segment')
-    }
-    void drainQueueRef.current()
-  }, [])
-
-  // Close any open segments (Stop / stream restart) and queue them.
-  const flushSegmenters = useCallback((sampleRate: number) => {
-    for (const channel of ['system', 'mic'] as Channel[]) {
-      const audio = segmentersRef.current[channel]?.flush()
-      if (audio) enqueueSegment({ channel, audio, sampleRate })
-    }
-    segmentersRef.current = {}
-  }, [enqueueSegment])
-
-  // Wire a single stream into the audio graph: its PCM goes through the
-  // channel's VAD segmenter, and it feeds the shared level-meter analyser.
-  const wireStream = useCallback((stream: MediaStream, channel: Channel, audioContext: AudioContext, analyser: AnalyserNode, useWorklet: boolean) => {
-    const src = audioContext.createMediaStreamSource(stream)
-    src.connect(analyser)
-
-    const sampleRate = audioContext.sampleRate
-    const segmenter = new SpeechSegmenter({ sampleRate, maxSegmentSeconds: transcriptionIntervalRef.current })
-    segmentersRef.current[channel] = segmenter
-
-    const node = createCaptureNode(audioContext, useWorklet, (samples) => {
-      if (!isListeningRef.current) return
-      for (const audio of segmenter.push(samples)) {
-        enqueueSegment({ channel, audio, sampleRate })
-      }
-    })
-    src.connect(node)
-    // Connected to the destination so the graph keeps pulling it; its output is silence.
-    node.connect(audioContext.destination)
-    captureNodesRef.current.push(node)
-
-    // Detect when macOS kills the audio stream (ScreenCaptureKit timeout ~20 min)
-    for (const track of stream.getAudioTracks()) {
-      track.onended = () => {
-        console.warn('[AudioCapture] Audio track ended (OS killed stream)')
-        if (isListeningRef.current) setStreamDied(true)
-      }
-    }
-  }, [enqueueSegment])
-
-  // Build the full capture graph for the selected source (used by start + restart)
-  const buildGraph = useCallback(async (streams: { stream: MediaStream; channel: Channel }[]) => {
-    const audioContext = new AudioContext()
-    audioContextRef.current = audioContext
-
-    const analyser = audioContext.createAnalyser()
-    analyser.fftSize = 256
-
-    const useWorklet = await loadCaptureWorklet(audioContext)
-    // Stopped (or restarted) while the worklet was loading
-    if (audioContextRef.current !== audioContext) return
-
-    for (const { stream, channel } of streams) {
-      wireStream(stream, channel, audioContext, analyser, useWorklet)
-    }
-
-    // Level visualization
-    const dataArray = new Uint8Array(analyser.frequencyBinCount)
-    const updateLevel = () => {
-      if (!isListeningRef.current) return
-      analyser.getByteFrequencyData(dataArray)
-      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
-      setAudioLevel(avg / 255)
-      animationFrameRef.current = requestAnimationFrame(updateLevel)
-    }
-    updateLevel()
-  }, [wireStream])
-
-  // Auto-restart when stream dies (macOS ScreenCaptureKit timeout ~20 min)
-  useEffect(() => {
-    if (!streamDied || restartingRef.current) return
-
-    const restartCapture = async () => {
-      restartingRef.current = true
-      console.log('[AudioCapture] Stream died, auto-restarting...')
-
-      const sampleRate = audioContextRef.current?.sampleRate || 48000
-      stopCapture()
-      // Keep whatever was being said when the stream died
-      flushSegmenters(sampleRate)
-      setStreamDied(false)
-      setStatus('requesting')
-      setErrorMsg('')
-
-      try {
-        const source = audioSourceRef.current
-        const streams: { stream: MediaStream; channel: Channel }[] = []
-        if (source === 'mic' || source === 'both') {
-          streams.push({ stream: await getMicStream(), channel: 'mic' })
-        }
-        if (source === 'system' || source === 'both') {
-          streams.push({ stream: await getSystemStream(), channel: 'system' })
-        }
-
-        streamsRef.current = streams.map(s => s.stream)
-        isListeningRef.current = true
-        setStatus('listening')
-
-        await buildGraph(streams)
-
-        // Restart duration timer (continue from current duration, don't reset)
-        durationIntervalRef.current = setInterval(() => {
-          setDuration(d => d + 1)
-        }, 1000)
-
-        // Restart auto-send timer if it was active
-        if (autoSendRef.current) {
-          autoSendTimerRef.current = setInterval(autoSendTick, autoSendIntervalRef.current * 1000)
-        }
-
-        console.log('[AudioCapture] Stream restarted successfully')
-      } catch (err: any) {
-        console.error('[AudioCapture] Failed to restart stream:', err)
-        setStatus('error')
-        setErrorMsg(`Stream lost. ${err.message || err}`)
-      } finally {
-        restartingRef.current = false
-      }
-    }
-
-    restartCapture()
-  }, [streamDied, stopCapture, flushSegmenters, buildGraph, autoSendTick])
-
-  // Keep autoSendInterval ref in sync and restart auto-send timer if active
-  useEffect(() => {
-    autoSendIntervalRef.current = autoSendInterval
-    if (autoSendRef.current && autoSendTimerRef.current) {
-      clearInterval(autoSendTimerRef.current)
-      autoSendTimerRef.current = setInterval(autoSendTick, autoSendInterval * 1000)
-    }
-  }, [autoSendInterval, autoSendTick])
-
-  // Get microphone stream
-  const getMicStream = async (): Promise<MediaStream> => {
-    let granted = true
-    try {
-      granted = (await window.ghostAPI.requestMicPermission()).granted
-    } catch {
-      // The permission query itself failed; let getUserMedia decide below.
-    }
-    if (!granted) {
-      throw new Error('Microphone permission denied. Enable in System Settings > Privacy > Microphone.')
-    }
-
-    return navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-  }
-
-  // Get system audio stream via getDisplayMedia + loopback
-  const getSystemStream = async (): Promise<MediaStream> => {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,  // Required by the API, but we only use audio
-      audio: true,  // System audio via loopback (macOS 13+ ScreenCaptureKit)
-    })
-
-    for (const track of stream.getVideoTracks()) {
-      track.stop()
-    }
-
-    if (stream.getAudioTracks().length === 0) {
-      throw new Error('No system audio captured. Check Screen Recording permission in System Settings > Privacy.')
-    }
-
-    return stream
-  }
+  const resetTranscript = useCallback(() => {
+    updateSegments(() => [])
+    lastTranscriptRef.current = ''
+    setSpeakerNames({})
+    setRenaming(null)
+    diarization.reset()
+    echoRef.current.reset()
+    lastMicAppendRef.current = null
+  }, [updateSegments, diarization.reset])
 
   const startCapture = useCallback(async () => {
     if (whisperStatus !== 'ready') {
       setErrorMsg('Whisper still loading. Please wait...')
       return
     }
-
-    setErrorMsg('')
-    setStatus('requesting')
-
-    try {
-      const streams: { stream: MediaStream; channel: Channel }[] = []
-      if (audioSource === 'mic' || audioSource === 'both') {
-        streams.push({ stream: await getMicStream(), channel: 'mic' })
-      }
-      if (audioSource === 'system' || audioSource === 'both') {
-        streams.push({ stream: await getSystemStream(), channel: 'system' })
-      }
-
-      streamsRef.current = streams.map(s => s.stream)
-      isListeningRef.current = true
-      setStatus('listening')
+    await graph.start(audioSource, () => {
+      echoActiveRef.current = audioSource === 'both'
       setOfferNotes(false)
-      setDuration(0)
-      setSegments([])
-      speakerCentroidsRef.current = []
-      queueRef.current = []
-      segmentersRef.current = {}
-
-      await buildGraph(streams)
-
-      durationIntervalRef.current = setInterval(() => {
-        setDuration(d => d + 1)
-      }, 1000)
-    } catch (err: any) {
-      setStatus('error')
-      if (err.name === 'NotAllowedError') {
-        setErrorMsg(
-          audioSource === 'mic'
-            ? 'Microphone permission denied.'
-            : 'Screen recording permission denied. Enable in System Settings > Privacy > Screen Recording.'
-        )
-      } else if (err.name === 'NotFoundError') {
-        setErrorMsg('No audio device found.')
-      } else {
-        setErrorMsg(err.message || `Error: ${err}`)
-      }
-    }
-  }, [whisperStatus, audioSource, buildGraph])
+      queue.clear()
+      resetTranscript()
+    })
+  }, [whisperStatus, audioSource, graph.start, queue.clear, resetTranscript, setErrorMsg])
 
   const handleStop = useCallback(async () => {
-    const sampleRate = audioContextRef.current?.sampleRate || 48000
-    stopCapture()
+    graph.stop()
     // Transcribe the phrase in progress plus anything still queued
-    flushSegmenters(sampleRate)
-    await drainQueue()
-    setStatus('idle')
-    setAudioLevel(0)
-    setDuration(0)
+    await queue.drain()
+    graph.finish()
     if (lastTranscriptRef.current.trim()) setOfferNotes(true)
-  }, [stopCapture, flushSegmenters, drainQueue])
+  }, [graph.stop, graph.finish, queue.drain])
 
   // Manual Suggest reply answers the most recent part of the conversation
   const handleSendTranscript = useCallback(() => {
@@ -795,10 +262,21 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
 
   const handleClearTranscript = useCallback(() => {
     setOfferNotes(false)
-    setSegments([])
-    speakerCentroidsRef.current = []
-    lastTranscriptRef.current = ''
-  }, [])
+    resetTranscript()
+  }, [resetTranscript])
+
+  // Rename a speaker (A → "Maria"); an empty name restores the label
+  const commitRename = useCallback(() => {
+    if (!renaming) return
+    const name = renaming.draft.trim().replace(/[:\n]/g, ' ').trim().slice(0, 40)
+    setSpeakerNames(prev => {
+      const next = { ...prev }
+      if (name && name !== renaming.label) next[renaming.label] = name
+      else delete next[renaming.label]
+      return next
+    })
+    setRenaming(null)
+  }, [renaming])
 
   const handleSaveTranscript = useCallback(async () => {
     if (!transcriptText.trim() || isSavingTranscript) return
@@ -834,6 +312,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
   const whisperReady = whisperStatus === 'ready'
   const whisperLoading = whisperStatus === 'loading'
   const hasTranscript = segments.length > 0
+  const hearsOtherSide = audioSource !== 'mic'
 
   const sourceLabels: Record<AudioSource, string> = {
     mic: 'Mic',
@@ -1031,22 +510,33 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
           </span>
         )}
 
-        {/* Auto-send toggle + interval control */}
+        {/* Questions + Auto-send toggles and interval control */}
         {status === 'listening' && (
           <div className="ml-auto flex items-center gap-1">
+            {hearsOtherSide && (
+              <button
+                onClick={() => setQuestionsMode(q => !q)}
+                className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
+                  questionsMode ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
+                }`}
+                title="Suggest a reply as soon as the other side asks a question"
+              >
+                Questions
+              </button>
+            )}
             <button
               onClick={() => setAutoSend(a => !a)}
               className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
-                autoSend ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
+                autoSendOn ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
               }`}
               title="Automatically send transcription to Ollama at the configured interval"
             >
               Auto
             </button>
-            {autoSend && (
+            {autoSendOn && (
               <div className="flex items-center gap-0.5">
                 <button
-                  onClick={() => setAutoSendInterval(v => Math.max(10, v - 5))}
+                  onClick={() => changeInterval(-5)}
                   className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Decrease auto-send interval"
                 >
@@ -1056,7 +546,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                   {autoSendInterval}s
                 </span>
                 <button
-                  onClick={() => setAutoSendInterval(v => Math.min(120, v + 5))}
+                  onClick={() => changeInterval(5)}
                   className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Increase auto-send interval"
                 >
@@ -1082,9 +572,33 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                 {segments.map((seg, i) => (
                   seg.speaker ? (
                     <p key={i} className="text-[10px] leading-relaxed">
-                      <span className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle ${speakerChipClass(seg.speaker)}`}>
-                        {seg.speaker}
-                      </span>
+                      {renaming?.label === seg.speaker ? (
+                        <input
+                          autoFocus
+                          aria-label={`Name for speaker ${seg.speaker}`}
+                          value={renaming.draft}
+                          onChange={e => setRenaming({ label: seg.speaker, draft: e.target.value })}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') commitRename()
+                            if (e.key === 'Escape') setRenaming(null)
+                          }}
+                          onBlur={commitRename}
+                          placeholder={seg.speaker}
+                          className="w-20 mr-1 px-1 rounded text-[8px] bg-ghost-fill-strong text-ghost-text border border-ghost-accent/50 focus:outline-none align-middle"
+                        />
+                      ) : isRenamable(seg.speaker) ? (
+                        <button
+                          onClick={() => setRenaming({ label: seg.speaker, draft: speakerNames[seg.speaker] ?? '' })}
+                          className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle hover:ring-1 hover:ring-current ${speakerChipClass(seg.speaker)}`}
+                          title="Click to rename this speaker"
+                        >
+                          {displaySpeaker(seg.speaker, speakerNames)}
+                        </button>
+                      ) : (
+                        <span className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle ${speakerChipClass(seg.speaker)}`}>
+                          {seg.speaker}
+                        </span>
+                      )}
                       <span className="text-ghost-text">{seg.text}</span>
                     </p>
                   ) : (

@@ -61,7 +61,7 @@ export function useTranscriptContext(transcript: string, settings: Settings, isC
       messages: [
         {
           role: 'system',
-          content: `You maintain a running summary of a live conversation transcript. Merge the new transcript excerpt into the existing summary. Keep who said what (speaker labels: "You" is the user; A, B, C or "Other" are other participants), decisions, open questions, names, numbers and commitments. Drop filler. Write in English, as concise bullet points, at most ${maxSummaryWords} words. Reply with ONLY the updated summary.`,
+          content: `You maintain a running summary of a live conversation transcript. Merge the new transcript excerpt into the existing summary. Keep who said what (each line starts with who is speaking: "You" is the user; any other label (a name, or A, B, C, "Other") is another participant), decisions, open questions, names, numbers and commitments. Drop filler. Write in English, as concise bullet points, at most ${maxSummaryWords} words. Reply with ONLY the updated summary.`,
         },
         {
           role: 'user',
