@@ -21,6 +21,19 @@ export const TRANSCRIPT_KEEP_SHARE = 0.15
 // Upper bound on the summary itself, as a share of the prompt budget.
 export const SUMMARY_SHARE = 0.1
 
+// What the last request used of the prompt budget (title-bar indicator)
+export interface ContextUsage {
+  promptTokens: number // estimated tokens sent (system + transcript + history + message)
+  budget: number // promptBudget(contextLength)
+  contextLength: number
+  droppedMessages: number // older chat messages left out to fit
+}
+
+// Share of the budget used, 0-1 (can exceed 1 when one message alone is too big)
+export function usageRatio(usage: ContextUsage): number {
+  return usage.budget > 0 ? usage.promptTokens / usage.budget : 0
+}
+
 export function estimateTokens(text: string): number {
   if (!text) return 0
   return Math.ceil(text.length / CHARS_PER_TOKEN)

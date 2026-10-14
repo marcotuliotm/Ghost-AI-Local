@@ -3,11 +3,12 @@ import { DEFAULT_SHORTCUTS, formatAccelerator, isMacPlatform, type Shortcuts } f
 interface HelpPanelProps {
   onBack: () => void
   shortcuts?: Shortcuts // configured global shortcuts (Settings)
+  onRunSetup?: () => void // reopen the first-run setup
 }
 
-export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelProps) {
+export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }: HelpPanelProps) {
   const isMac = isMacPlatform()
-  const keys = (action: keyof Shortcuts) => formatAccelerator(shortcuts[action], isMac)
+  const keys = (action: keyof Shortcuts) => formatAccelerator(shortcuts[action] ?? DEFAULT_SHORTCUTS[action], isMac)
   return (
     <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
       {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
@@ -34,6 +35,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelPr
             <ShortcutRow label="Capture screenshot & analyze" shortcut={keys('screenshot')} />
             <ShortcutRow label="Crop screen region & analyze" shortcut={keys('cropScreenshot')} />
             <ShortcutRow label="Focus text input" shortcut={keys('focusInput')} />
+            <ShortcutRow label="Toggle compact mode" shortcut={keys('compactMode')} />
             <ShortcutRow label="Clear text input" shortcut="Esc" />
             <ShortcutRow label="Stop generating (while a reply streams)" shortcut="Esc" />
             <ShortcutRow label="Send message" shortcut="Enter" />
@@ -41,8 +43,31 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS }: HelpPanelPr
         </Section>
 
         {/* Title Bar Buttons */}
+        {onRunSetup && (
+          <div className="flex items-center justify-between bg-ghost-fill rounded-lg px-3 py-2">
+            <span className="text-[10px] text-ghost-text-muted">Check Ollama, permissions and the speech model again.</span>
+            <button onClick={onRunSetup} className="ml-2 flex-shrink-0 text-[10px] text-ghost-accent hover:text-ghost-accent-hover">
+              Run setup again
+            </button>
+          </div>
+        )}
+
         <Section title="Title Bar Buttons">
           <div className="space-y-2 text-[10px] text-ghost-text-muted">
+            <ButtonRow
+              icon={<span className="block w-6 h-1 rounded-full bg-ghost-fill-strong overflow-hidden"><span className="block h-full w-3/5 bg-ghost-accent" /></span>}
+              label="Context meter"
+              description="How much of the model's context window the last request used. Amber past 70%, red past 90%; hover for the numbers and whether older chat was left out"
+            />
+            <ButtonRow
+              icon={
+                <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
+                </svg>
+              }
+              label="Compact mode"
+              description={`Shrinks Ghost AI to a small card showing only the latest suggestion (${keys('compactMode')}). Clicks pass through the card to the app underneath; hover its top bar to drag or expand. Recording, Auto and Questions keep running`}
+            />
             <ButtonRow
               icon={
                 <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">

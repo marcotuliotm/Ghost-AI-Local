@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import App from '../App'
 
@@ -107,6 +107,62 @@ describe('App', () => {
       window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { hideFromScreenShare: false } })
       render(<App />)
       await waitFor(() => expect(window.ghostAPI.setContentProtection).toHaveBeenLastCalledWith(false))
+    })
+  })
+
+  describe('first-run setup', () => {
+    it('should open the setup for a new user and remember when it is done', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: null })
+      render(<App />)
+      expect(await screen.findByText('Welcome to Ghost AI')).toBeInTheDocument()
+      fireEvent.click(screen.getByText('Skip'))
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenLastCalledWith(expect.objectContaining({ onboardingCompleted: true })))
+      expect(screen.queryByText('Welcome to Ghost AI')).toBeNull()
+    })
+
+    it('should not show the setup to existing users', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { selectedModel: 'gemma4:latest' } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      expect(screen.queryByText('Welcome to Ghost AI')).toBeNull()
+    })
+
+    it('should reopen the setup from Help', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      fireEvent.click(screen.getByTitle('Help - Shortcuts & buttons'))
+      fireEvent.click(screen.getByText('Run setup again'))
+      expect(screen.getByText('Welcome to Ghost AI')).toBeInTheDocument()
+    })
+  })
+
+  describe('compact mode', () => {
+    it('should shrink to the compact card and back', async () => {
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      expect(window.ghostAPI.setCompactMode).toHaveBeenLastCalledWith(false)
+
+      fireEvent.click(screen.getByTitle('Compact mode (Cmd+Shift+M)'))
+      expect(screen.getByTestId('compact-view')).toBeInTheDocument()
+      expect(window.ghostAPI.setCompactMode).toHaveBeenLastCalledWith(true)
+
+      fireEvent.click(screen.getByTitle('Expand (Cmd+Shift+M)'))
+      expect(screen.queryByTestId('compact-view')).toBeNull()
+      expect(window.ghostAPI.setCompactMode).toHaveBeenLastCalledWith(false)
+    })
+
+    it('should toggle from the global shortcut', async () => {
+      let toggle: () => void = () => {}
+      window.ghostAPI.onToggleCompact = vi.fn().mockImplementation(cb => { toggle = cb; return () => {} })
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { onboardingCompleted: true } })
+      render(<App />)
+      await waitFor(() => expect(window.ghostAPI.settingsSave).toHaveBeenCalled())
+      act(() => toggle())
+      expect(screen.getByTestId('compact-view')).toBeInTheDocument()
+      act(() => toggle())
+      expect(screen.queryByTestId('compact-view')).toBeNull()
     })
   })
 })

@@ -333,4 +333,20 @@ describe('Overlay', () => {
       expect(screen.getByPlaceholderText('Ask something... (Ctrl+Space)')).toBeInTheDocument()
     })
   })
+
+  describe('context meter', () => {
+    it('should show how full the last request was', () => {
+      render(<Overlay {...defaultProps} contextUsage={{ promptTokens: 5000, budget: 6144, contextLength: 8192, droppedMessages: 2 }} />)
+      const meter = screen.getByRole('meter', { name: 'Context used by the last request' })
+      expect(meter).toHaveAttribute('aria-valuenow', '81')
+      expect(meter).toHaveAttribute('title', expect.stringContaining('~5,000 of 6,144 prompt tokens'))
+      expect(meter).toHaveAttribute('title', expect.stringContaining('2 older messages were left out'))
+      expect(meter.firstElementChild?.className).toContain('bg-ghost-warning')
+    })
+
+    it('should not show before the first request', () => {
+      render(<Overlay {...defaultProps} />)
+      expect(screen.queryByRole('meter')).toBeNull()
+    })
+  })
 })

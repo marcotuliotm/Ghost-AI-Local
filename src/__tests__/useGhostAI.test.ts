@@ -734,4 +734,30 @@ describe('useGhostAI', () => {
       await waitFor(() => expect(result.current.shortcutErrors).toEqual(['focusInput']))
     })
   })
+
+  describe('context usage', () => {
+    it('should report the prompt size of the last request', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      expect(result.current.contextUsage).toBeNull()
+      await act(async () => { await result.current.sendMessage('Hello', undefined, { context: 'A: hi' }) })
+      const usage = result.current.contextUsage!
+      expect(usage.contextLength).toBe(8192)
+      expect(usage.budget).toBe(6144)
+      expect(usage.promptTokens).toBeGreaterThan(0)
+      expect(usage.droppedMessages).toBe(0)
+    })
+
+    it('should count older messages left out to fit', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      act(() => result.current.updateSettings({ contextLength: 4096 }))
+      const long = 'x'.repeat(4000) // ~1000 tokens each
+      for (const text of ['one ' + long, 'two ' + long, 'three ' + long]) {
+        await act(async () => { await result.current.sendMessage(text) })
+      }
+      expect(result.current.contextUsage!.droppedMessages).toBeGreaterThan(0)
+      expect(result.current.contextUsage!.promptTokens).toBeLessThanOrEqual(result.current.contextUsage!.budget)
+    })
+  })
 })

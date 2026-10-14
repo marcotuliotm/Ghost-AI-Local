@@ -13,6 +13,7 @@ import {
   net,
   dialog,
   clipboard,
+  shell,
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -35,6 +36,7 @@ import {
   type Shortcuts,
 } from '../src/lib/shortcuts'
 import { FULL_SCREENSHOT_MAX_EDGE, fitWithin, nativeCaptureSize } from '../src/lib/screenshot'
+import { compactBounds } from '../src/lib/compact'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
 // Chromium 142 enabled Apple's new CoreAudio Tap API (MacCatapLoopbackAudioForScreenShare)
@@ -191,6 +193,10 @@ function updateTrayMenu() {
     {
       label: label('Crop Screenshot', 'cropScreenshot'),
       click: () => runShortcutAction('cropScreenshot'),
+    },
+    {
+      label: label('Compact Mode', 'compactMode'),
+      click: () => runShortcutAction('compactMode'),
     },
     { type: 'separator' },
     {
@@ -400,6 +406,14 @@ window.__cropResult=new Promise(ok=>{
 }
 
 let currentShortcuts: Shortcuts = { ...DEFAULT_SHORTCUTS }
+// Window bounds to restore when leaving compact mode (null = not compact)
+let normalBounds: Electron.Rectangle | null = null
+
+// System Settings panes the onboarding may open — nothing else is passed to openExternal
+const PRIVACY_PANES: Record<string, string> = {
+  microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+}
 let shortcutsSuspended = false
 
 function runShortcutAction(action: ShortcutAction) {
@@ -416,6 +430,11 @@ function runShortcutAction(action: ShortcutAction) {
     case 'focusInput':
       if (!isOverlayVisible) toggleOverlay()
       mainWindow?.webContents.send('focus-input')
+      break
+    case 'compactMode':
+      // The renderer owns the view; it answers with set-compact-mode
+      if (!isOverlayVisible) toggleOverlay()
+      mainWindow?.webContents.send('toggle-compact')
       break
   }
 }
@@ -752,6 +771,42 @@ function setupIPC() {
 
   ipcMain.on('set-ignore-mouse', (_event, ignore: boolean) => {
     mainWindow?.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
+  // Compact mode: shrink to a small card at the window's top-right corner, and
+  // restore the previous bounds on the way out. Click-through is driven by the
+  // renderer (set-ignore-mouse), which re-enables the mouse over its controls.
+  ipcMain.on('set-compact-mode', (_event, enabled: boolean) => {
+    if (!mainWindow) return
+    if (enabled && !normalBounds) {
+      normalBounds = mainWindow.getBounds()
+      const { workArea } = screen.getDisplayMatching(normalBounds)
+      // No traffic lights on the card: they'd cover its toolbar, and a stray
+      // click on the red one would quit mid-call
+      if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false)
+      mainWindow.setBounds(compactBounds(normalBounds, workArea))
+    } else if (!enabled && normalBounds) {
+      mainWindow.setIgnoreMouseEvents(false)
+      if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(true)
+      mainWindow.setBounds(normalBounds)
+      normalBounds = null
+    }
+  })
+
+  // Screen Recording permission (needed for system audio and screenshots).
+  // macOS has no prompt API for it: it is asked on first capture, or granted
+  // in System Settings.
+  ipcMain.handle('get-screen-permission', () => {
+    if (process.platform !== 'darwin') return { status: 'granted' }
+    return { status: systemPreferences.getMediaAccessStatus('screen') }
+  })
+
+  // Open the matching System Settings privacy pane (fixed URLs only)
+  ipcMain.handle('open-privacy-settings', async (_event, kind: string) => {
+    const url = PRIVACY_PANES[kind]
+    if (process.platform !== 'darwin' || !url) return { opened: false }
+    await shell.openExternal(url)
+    return { opened: true }
   })
 
   // Move window

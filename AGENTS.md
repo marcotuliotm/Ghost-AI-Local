@@ -27,15 +27,17 @@ Ghost-AI-Local/
 │   ├── main.ts          # Main process: window, tray, shortcuts, IPC, Whisper, settings store
 │   └── preload.ts       # contextBridge exposing ghostAPI to renderer
 ├── src/
-│   ├── App.tsx           # Root component, view routing (overlay | settings | help)
+│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding)
 │   ├── main.tsx          # React entry point
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
 │   │   ├── Overlay.tsx       # Main UI: chat, quick actions, audio, save, welcome screen
 │   │   ├── AudioCapture.tsx  # Audio UI: source/Speakers/Questions/Auto controls, transcript (renamable speakers), action buttons; wires the audio hooks
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
+│   │   ├── CompactView.tsx   # Compact mode card: latest suggestion, click-through, drag/expand toolbar
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
+│   │   ├── Onboarding.tsx    # First-run setup: Ollama + model, mic / Screen Recording, Whisper download
 │   │   ├── ShortcutRecorder.tsx # Click-and-press recorder for a global shortcut
 │   │   ├── Settings.tsx      # Settings panel (model, context window, preset editor, appearance, Whisper model/language, transcription)
 │   │   └── HelpPanel.tsx     # Help reference (shortcuts, buttons, descriptions)
@@ -48,6 +50,7 @@ Ghost-AI-Local/
 │   │   ├── useAutoSend.ts    # Auto timer: sends only the new text, retries when declined
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking, model/language, reload detection
 │   ├── lib/
+│   │   ├── compact.ts        # Compact window bounds (top-right anchored, kept in the work area; also used by electron/main.ts)
 │   │   ├── csp.ts            # Renderer Content-Security-Policy (injected by vite.config.mts)
 │   │   ├── audio.ts          # AudioWorklet source/loader, capture node, 16 kHz resampling, silence/hallucination filters
 │   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
@@ -55,6 +58,7 @@ Ghost-AI-Local/
 │   │   ├── echo.ts           # Echo detection for Both mode (word-overlap similarity, EchoFilter)
 │   │   ├── filename.ts       # AI-generated file names (shared by every Save) + date stamps
 │   │   ├── notes.ts          # Meeting notes: prompt, budget fitting, Markdown export
+│   │   ├── onboarding.ts     # Setup steps (required vs optional) from Ollama/permission/Whisper state
 │   │   ├── ollama.ts         # Local-URL check, cloud-model detection, stream-line parsing (also used by electron/main.ts)
 │   │   ├── presets.ts        # Built-in prompt presets, CRUD, merge/validation, {{transcript}} filling
 │   │   ├── questions.ts      # isQuestion heuristic (EN/PT/ES) for Questions mode
@@ -141,13 +145,17 @@ npm run dist:win   # Build + package Windows NSIS
 | `window-move` | renderer->main | send | Reposition window |
 | `window-resize` | renderer->main | send | Resize window |
 | `set-opacity` | renderer->main | send | Set window opacity |
-| `set-ignore-mouse` | renderer->main | send | Click-through toggle |
+| `set-ignore-mouse` | renderer->main | send | Click-through toggle (`forward: true`, so hover still reaches the page) — used by compact mode |
+| `set-compact-mode` | renderer->main | send | Shrink to the compact card (`compactBounds`) / restore the previous bounds |
+| `get-screen-permission` | renderer->main | invoke | Screen Recording permission status (onboarding) |
+| `open-privacy-settings` | renderer->main | invoke | Open the macOS Microphone / Screen Recording privacy pane (fixed URLs only) |
 | `set-content-protection` | renderer->main | send | Hide the overlay from screen sharing / recordings (`settings.hideFromScreenShare`) |
 | `shortcuts-update` | renderer->main | invoke | Register `settings.shortcuts`; returns `{ failed }` (invalid or owned by another app); also relabels the tray |
 | `shortcuts-suspend` | renderer->main | send | Unregister / restore global shortcuts while one is being recorded in Settings |
 | `ollama-stream-chunk` | main->renderer | send | Streaming chunk `{ requestId, content, thinking }` |
 | `screenshot-captured` | main->renderer | send | Screenshot from shortcut |
 | `focus-input` | main->renderer | send | Focus chat input |
+| `toggle-compact` | main->renderer | send | Compact-mode shortcut / tray item |
 | `open-settings` | main->renderer | send | Open settings view |
 | `overlay-visibility` | main->renderer | send | Visibility state changed |
 | `whisper-progress` | main->renderer | send | Model download progress (includes `model`) |
@@ -168,8 +176,9 @@ interface Settings {
   presets: Preset[]            // built-ins first (General, Technical interview, Sales call, Lecture/Class), then user presets
   activePresetId: string       // default 'general'
   reasoning: boolean           // default true: thinking models reason (shown above the reply); false sends think: false
-  shortcuts: Shortcuts         // { toggleOverlay, screenshot, cropScreenshot, focusInput } as Electron accelerators
+  shortcuts: Shortcuts         // { toggleOverlay, screenshot, cropScreenshot, focusInput, compactMode } as Electron accelerators
   hideFromScreenShare: boolean // default true: setContentProtection on the overlay
+  onboardingCompleted: boolean // first-run setup done/skipped; true for anyone with older saved settings
 }
 
 interface Preset {
@@ -228,6 +237,15 @@ Every streaming request gets a `requestId` (`useGhostAI.startRequest`). The main
 
 ### Markdown replies
 Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm` + `rehype-highlight`; styles in `globals.css` under `.response-content`). For the zero-network rule nothing in a reply may load or navigate: raw HTML stays disabled (react-markdown default — do not add `rehype-raw`), links render as text with the URL as a tooltip, and images become `[image: alt]`. Code blocks get a copy button. User messages stay plain text.
+
+### Compact mode
+A small card (`CompactView`, 360×160) showing only the latest assistant reply (Markdown, following a streaming reply; the reasoning tail while thinking). `App` switches to the `compact` view from the title-bar button, the `compactMode` shortcut (`toggle-compact` from main) or the tray; an effect calls `set-compact-mode`, which saves the window bounds and applies `compactBounds` (top-right corner of the window, clamped to that display's work area) and hides the macOS traffic lights (they'd cover the card's toolbar, and the red one would quit mid-call), restoring both on exit. The card is click-through: it calls `setIgnoreMouse(true)` (forwarded, so mouse movement still reaches the page) and its toolbar (drag handle + expand) switches the mouse back on while hovered. The Overlay stays mounted underneath, so recording, Auto and Questions keep running.
+
+### First-run setup (onboarding)
+`Onboarding.tsx` opens when `settings.onboardingCompleted` is false — new users only: `mergeSettings` sets it to true for settings saved before it existed. Steps come from `setupSteps` (`src/lib/onboarding.ts`): Ollama running, a local model, microphone (optional), Screen Recording (optional — needed for system audio and screenshots) and the Whisper model. Finish is enabled once the required ones are done; Skip is always available; Help has "Run setup again". Permissions are polled every 2s (they change in System Settings); the mic uses `request-mic-permission`, Screen Recording has no prompt API so the step opens its privacy pane (`open-privacy-settings`, fixed URLs). The Whisper step only selects the model and shows progress — the hidden Overlay's `AudioCapture` does the loading. Ollama models are never pulled by the app (that would reach ollama.com): the step shows `ollama pull …` to copy.
+
+### Context meter
+`useGhostAI` records `contextUsage` for each request (estimated prompt tokens, `promptBudget`, window size, chat messages dropped by `fitHistoryToBudget`). `Overlay` shows it as a thin bar next to the model name (accent < 70%, amber < 90%, red beyond), with the numbers in its tooltip.
 
 ### Prompt presets
 `src/lib/presets.ts` defines the `Preset` built-ins and pure CRUD helpers (`createPreset`, `duplicatePreset`, `renamePreset`, `updatePreset`, `deletePreset`, `restorePreset`). Built-ins are recognized by id: they can be edited and restored but `deletePreset` is a no-op for them, and `mergePresets` re-adds any that are missing from the stored list (an edited stored copy wins). `getActivePreset(settings)` feeds `useGhostAI` (system prompt) and `Overlay` (Suggest reply/Auto template and the quick-action pills, which replace the old fixed Summarize / Suggest reply / Next steps). The preset editor in `Settings.tsx` edits a local copy, committed only on Save; the title-bar preset dropdown calls `updateSettings({ activePresetId })`.
@@ -330,7 +348,7 @@ This forces Chromium back onto the ScreenCaptureKit path, which uses the Screen 
 
 ### Adding a new view/panel
 
-1. Add the view name to the `View` type union in `src/App.tsx`: `type View = 'overlay' | 'settings' | 'help' | 'newview'`
+1. Add the view name to the `View` type union in `src/App.tsx`: `type View = 'overlay' | 'settings' | 'help' | 'compact' | 'onboarding' | 'newview'` (keep the Overlay mounted — it hosts AudioCapture)
 2. Create the component in `src/components/NewView.tsx` with an `onBack` prop
 3. Add the conditional render in `App.tsx`
 4. Add a button in `Overlay.tsx` title bar to navigate to it
@@ -368,10 +386,11 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 | `Cmd+Shift+S` | Capture the screen under the pointer and send it to Ollama for analysis |
 | `Cmd+Shift+X` | Open a crop overlay on the screen under the pointer, capture the selected region, send to Ollama |
 | `Cmd+Shift+A` | Focus the chat text input (shows overlay if hidden) |
+| `Cmd+Shift+M` | Toggle compact mode |
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **410 tests** across 31 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **440 tests** across 35 test files under `src/__tests__/`.
 
 ### Running tests
 

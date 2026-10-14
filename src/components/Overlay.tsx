@@ -5,6 +5,7 @@ import { MessageBubble } from './MessageBubble'
 import { AudioCapture } from './AudioCapture'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
 import type { SendMessageOptions } from '../hooks/useGhostAI'
+import { usageRatio, type ContextUsage } from '../lib/context'
 import { fillSuggestReplyPrompt, getActivePreset } from '../lib/presets'
 import { buildMeetingNotesRequest, normalizeNotesMarkdown, notesDocument, notesLanguage } from '../lib/notes'
 import { fileStamp, suggestFilename } from '../lib/filename'
@@ -32,6 +33,10 @@ interface OverlayProps {
   connectionError?: string | null
   queuedCount?: number
   stopGeneration?: () => void
+  // Prompt size of the last request (title-bar indicator)
+  contextUsage?: ContextUsage | null
+  // Switch to the compact card
+  onCompact?: () => void
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -52,6 +57,8 @@ export function Overlay({
   connectionError = null,
   queuedCount = 0,
   stopGeneration,
+  contextUsage = null,
+  onCompact,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -199,9 +206,23 @@ export function Overlay({
               {settings.selectedModel}
             </span>
           )}
+          {contextUsage && <ContextMeter usage={contextUsage} />}
         </div>
 
         <div className="flex items-center gap-0.5 no-drag">
+          {/* Compact mode */}
+          {onCompact && (
+            <button
+              onClick={onCompact}
+              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              title={`Compact mode (${keys('compactMode')})`}
+            >
+              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
+              </svg>
+            </button>
+          )}
+
           {/* Preset switcher */}
           <div className="relative" ref={presetMenuRef}>
             <button
@@ -447,6 +468,31 @@ export function Overlay({
         isStreaming={isStreaming}
         isConnected={isConnected}
       />
+    </div>
+  )
+}
+
+// How full the prompt was on the last request: a thin bar that turns amber,
+// then red, as the context window fills up (older chat starts being dropped).
+function ContextMeter({ usage }: { usage: ContextUsage }) {
+  const ratio = usageRatio(usage)
+  const pct = Math.min(100, Math.round(ratio * 100))
+  const color = ratio >= 0.9 ? 'bg-ghost-error' : ratio >= 0.7 ? 'bg-ghost-warning' : 'bg-ghost-accent'
+  const fmt = (n: number) => n.toLocaleString('en-US')
+  const dropped = usage.droppedMessages > 0
+    ? ` ${usage.droppedMessages} older message${usage.droppedMessages === 1 ? ' was' : 's were'} left out to fit.`
+    : ''
+  return (
+    <div
+      className="flex-shrink-0 w-8 h-1 rounded-full bg-ghost-fill-strong overflow-hidden"
+      role="meter"
+      aria-label="Context used by the last request"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      title={`Last request: ~${fmt(usage.promptTokens)} of ${fmt(usage.budget)} prompt tokens (${fmt(usage.contextLength)}-token context window).${dropped}`}
+    >
+      <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
     </div>
   )
 }

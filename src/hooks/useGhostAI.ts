@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, OllamaMessage, OllamaModel, Settings, StreamResult } from '../types'
-import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage } from '../lib/context'
+import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage, type ContextUsage } from '../lib/context'
 import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
 import { mergeSettings } from '../lib/settings'
 import { DEFAULT_TRANSCRIPTION_LANGUAGE, DEFAULT_WHISPER_MODEL } from '../lib/whisper'
@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reasoning: true,
   shortcuts: { ...DEFAULT_SHORTCUTS },
   hideFromScreenShare: true,
+  onboardingCompleted: false,
 }
 
 // Requests made while a reply is streaming wait here (screenshot shortcut,
@@ -68,6 +69,8 @@ export function useGhostAI() {
   // back before that, so the defaults never overwrite the stored settings.
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [queue, setQueue] = useState<QueuedRequest[]>([])
+  // Prompt size of the last request, for the title-bar context indicator
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null)
   // Shortcuts the main process could not register (taken by another app)
   const [shortcutErrors, setShortcutErrors] = useState<ShortcutAction[]>([])
   const activeRef = useRef<ActiveRequest | null>(null)
@@ -209,8 +212,15 @@ export function useGhostAI() {
     }
 
     const systemTokens = systemMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)
-    const historyBudget = promptBudget(current.contextLength) - systemTokens
-    const ollamaMessages = [...systemMessages, ...fitHistoryToBudget(history, historyBudget)]
+    const budget = promptBudget(current.contextLength)
+    const fittedHistory = fitHistoryToBudget(history, budget - systemTokens)
+    const ollamaMessages = [...systemMessages, ...fittedHistory]
+    setContextUsage({
+      promptTokens: ollamaMessages.reduce((n, m) => n + estimateMessageTokens(m), 0),
+      budget,
+      contextLength: current.contextLength,
+      droppedMessages: history.length - fittedHistory.length,
+    })
 
     let result: StreamResult
     try {
@@ -311,6 +321,7 @@ export function useGhostAI() {
     messages,
     isStreaming,
     queuedCount: queue.length,
+    contextUsage,
     isConnected,
     connectionError,
     models,
