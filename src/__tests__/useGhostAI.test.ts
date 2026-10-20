@@ -760,4 +760,68 @@ describe('useGhostAI', () => {
       expect(result.current.contextUsage!.promptTokens).toBeLessThanOrEqual(result.current.contextUsage!.budget)
     })
   })
+
+  describe('document retrieval', () => {
+    it('should send relevant document excerpts and record the sources', async () => {
+      window.ghostAPI.docsSearch = vi.fn().mockResolvedValue({ chunks: [
+        { docName: 'cv.pdf', text: 'Five years of React', score: 1 },
+        { docName: 'job.md', text: 'Senior frontend role', score: 0.8 },
+      ] })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      await act(async () => { await result.current.sendMessage('Why am I a fit?', undefined, { context: 'A: tell me about yourself' }) })
+
+      expect(window.ghostAPI.docsSearch).toHaveBeenCalledWith(expect.objectContaining({
+        query: expect.stringContaining('Why am I a fit?'), embeddingModel: 'nomic-embed-text', maxTokens: 1536,
+      }))
+      expect((window.ghostAPI.docsSearch as any).mock.calls[0][0].query).toContain('A: tell me about yourself')
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
+      const docsMsg = sent.find((m: any) => m.content.includes("user's own documents"))
+      expect(docsMsg.role).toBe('system')
+      expect(docsMsg.content).toContain('[cv.pdf]\nFive years of React')
+      expect(result.current.messages[1].sources).toEqual(['cv.pdf', 'job.md'])
+    })
+
+    it('should send nothing extra when no document matches', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      await act(async () => { await result.current.sendMessage('Hello') })
+      const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
+      expect(sent.some((m: any) => m.content.includes("user's own documents"))).toBe(false)
+      expect(result.current.messages[1].sources).toBeUndefined()
+    })
+
+    it('should keep meeting notes to the transcript', async () => {
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      await act(async () => { await result.current.sendMessage('Write notes', undefined, { standalone: true, context: 'A: hi' }) })
+      expect(window.ghostAPI.docsSearch).not.toHaveBeenCalled()
+    })
+
+    it('should still answer when document search fails', async () => {
+      window.ghostAPI.docsSearch = vi.fn().mockRejectedValue(new Error('index corrupt'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      await act(async () => { await result.current.sendMessage('Hello') })
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('should keep document excerpts within their share of the budget', async () => {
+      const big = Array.from({ length: 10 }, (_, i) => ({ docName: `d${i}.md`, text: 'w '.repeat(2000), score: 1 }))
+      window.ghostAPI.docsSearch = vi.fn().mockResolvedValue({ chunks: big })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
+      await act(async () => { await result.current.sendMessage('Hello') })
+      // 8192 window → 6144 budget → 25% = 1536 tokens ≈ one 1000-token excerpt
+      expect(result.current.messages[1].sources).toEqual(['d0.md'])
+    })
+
+    it('should list local embedding models separately', async () => {
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: true, models: [], embeddingModels: ['nomic-embed-text:latest'] })
+      const { result } = renderHook(() => useGhostAI())
+      await waitFor(() => expect(result.current.embeddingModels).toEqual(['nomic-embed-text:latest']))
+    })
+  })
 })

@@ -1,5 +1,6 @@
 // Type definitions for the Ghost AI API exposed via preload
 import type { ShortcutAction, Shortcuts } from './lib/shortcuts'
+import type { DocumentInfo, RetrievedChunk } from './lib/rag'
 export interface GhostAPI {
   // Ollama
   ollamaChat: (payload: {
@@ -25,8 +26,20 @@ export interface GhostAPI {
 
   ollamaAbort: (requestId: string) => Promise<{ aborted: boolean }>
 
-  // Connection + local models (cloud models filtered out) in one call
-  ollamaStatus: (baseUrl: string) => Promise<{ connected: boolean; models: OllamaModel[]; error?: string }>
+  // Connection + local chat models (cloud and embedding-only models filtered
+  // out) and local embedding model names, in one call
+  ollamaStatus: (baseUrl: string) => Promise<{ connected: boolean; models: OllamaModel[]; embeddingModels?: string[]; error?: string }>
+
+  // Documents: the user's files for local retrieval (stored in userData/documents)
+  docsList: () => Promise<{ docs: DocumentInfo[] }>
+  // Opens a file picker; embeds with the embedding model when it's installed
+  docsAdd: (opts: { baseUrl: string; embeddingModel: string }) =>
+    Promise<{ added: DocumentInfo[]; errors: { name: string; error: string }[]; canceled?: boolean }>
+  docsRemove: (id: string) => Promise<{ docs: DocumentInfo[] }>
+  docsSetEnabled: (id: string, enabled: boolean) => Promise<{ docs: DocumentInfo[] }>
+  docsReindex: (opts: { baseUrl: string; embeddingModel: string }) => Promise<{ reindexed: number; error?: string }>
+  // Whole documents when they fit `maxTokens`, otherwise the top-ranked excerpts
+  docsSearch: (opts: { query: string; baseUrl: string; embeddingModel: string; k?: number; maxTokens?: number }) => Promise<{ chunks: RetrievedChunk[] }>
 
   // Screenshot
   captureScreenshot: () => Promise<string | null>
@@ -137,6 +150,7 @@ export interface ChatMessage {
   screenshot?: string
   thinking?: string // the model's reasoning, shown collapsed above the reply
   stopped?: boolean // generation was stopped by the user
+  sources?: string[] // documents whose excerpts were sent with this request
   kind?: 'notes' // assistant reply holding meeting notes (offers Save .md)
 }
 
@@ -169,6 +183,7 @@ export interface Settings {
   shortcuts: Shortcuts // global shortcuts (Electron accelerators)
   hideFromScreenShare: boolean // content protection: overlay invisible to screen sharing (default true)
   onboardingCompleted: boolean // first-run setup finished or skipped
+  embeddingModel: string // Ollama embedding model for document retrieval (keyword search when not installed)
 }
 
 declare global {

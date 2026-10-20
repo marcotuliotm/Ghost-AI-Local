@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isCloudModel,
+  isEmbeddingModel,
   isLocalOllamaUrl,
   normalizeOllamaUrl,
   parseStreamLine,
@@ -92,4 +93,12 @@ describe('parseStreamLine', () => {
     expect(parseStreamLine('')).toBeNull()
     expect(parseStreamLine('{"message":')).toBeNull()
   })
+
+describe('isEmbeddingModel', () => {
+  it('should separate embedding-only models from chat models', () => {
+    expect(isEmbeddingModel({ name: 'nomic-embed-text:latest', capabilities: ['embedding'] })).toBe(true)
+    expect(isEmbeddingModel({ name: 'qwen3.5:latest', capabilities: ['completion', 'thinking'] })).toBe(false)
+    expect(isEmbeddingModel({ name: 'old' })).toBe(false)
+  })
+})
 })

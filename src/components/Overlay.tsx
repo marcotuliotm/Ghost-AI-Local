@@ -37,6 +37,8 @@ interface OverlayProps {
   contextUsage?: ContextUsage | null
   // Switch to the compact card
   onCompact?: () => void
+  // Open the documents panel (local retrieval)
+  onOpenDocuments?: () => void
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -59,6 +61,7 @@ export function Overlay({
   stopGeneration,
   contextUsage = null,
   onCompact,
+  onOpenDocuments,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -219,6 +222,19 @@ export function Overlay({
             >
               <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
+              </svg>
+            </button>
+          )}
+
+          {/* Documents */}
+          {onOpenDocuments && (
+            <button
+              onClick={onOpenDocuments}
+              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              title="Documents"
+            >
+              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
             </button>
           )}
