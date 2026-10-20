@@ -13,7 +13,9 @@
   --label-secondary: 72 72 74; /* darker, solid secondary text for light mode */
   --separator: 0 0 0;         /* used at low opacity for hairlines */
   --surface: 0 0 0;           /* control fills tint (dark-on-light in light mode) */
-  --ghost-font-size: 12px;
+  --tint: 255 255 255;        /* window glass tint (macOS 27: more tinted, more legible) */
+  --tint-alpha: 0.42;
+  --ghost-font-size: 13px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,6 +25,8 @@
     --label-secondary: 174 174 178;
     --separator: 255 255 255;
     --surface: 255 255 255;   /* light-on-dark fills in dark mode */
+    --tint: 28 28 30;
+    --tint-alpha: 0.5;
   }
 }
 
@@ -81,20 +85,20 @@ html, body, #root {
   @apply font-semibold mt-2 mb-1;
 }
 
-.response-content h1 { @apply text-base; }
-.response-content h2 { @apply text-sm; }
-.response-content h3 { @apply text-xs; }
+.response-content h1 { @apply text-title3; }
+.response-content h2 { @apply text-body; }
+.response-content h3 { @apply text-body; }
 
 .response-content p {
-  @apply mb-1.5 text-xs leading-relaxed;
+  @apply mb-1.5 text-body leading-relaxed;
 }
 
 .response-content code {
-  @apply bg-ghost-fill-strong px-1 py-0.5 rounded text-xs font-mono;
+  @apply bg-ghost-fill-strong px-1 py-0.5 rounded-md text-callout font-mono;
 }
 
 .response-content pre {
-  @apply bg-ghost-fill-strong p-2 rounded-md my-2 overflow-x-auto;
+  @apply bg-ghost-fill-strong p-2.5 rounded-lg my-2 overflow-x-auto;
 }
 
 .response-content pre code {
@@ -102,7 +106,7 @@ html, body, #root {
 }
 
 .response-content ul, .response-content ol {
-  @apply ml-4 mb-1.5 text-xs;
+  @apply ml-4 mb-1.5 text-body;
 }
 
 .response-content li {
@@ -110,7 +114,7 @@ html, body, #root {
 }
 
 .response-content blockquote {
-  @apply border-l-2 border-ghost-accent pl-2 my-1.5 text-xs opacity-80;
+  @apply border-l-2 border-ghost-accent pl-2 my-1.5 text-body opacity-80;
 }
 
 .response-content ul { list-style: disc; }
@@ -121,7 +125,7 @@ html, body, #root {
 .response-content li.task-list-item input { margin-right: 0.35rem; vertical-align: middle; }
 
 .response-content table {
-  @apply text-[10px] border-collapse;
+  @apply text-callout border-collapse;
 }
 
 .response-content th,
@@ -181,12 +185,54 @@ html, body, #root {
   color: rgb(var(--accent));
 }
 
-/* Window surface — transparent so the native vibrancy material shows through.
-   A hairline inner border keeps a crisp edge on the rounded native corners. */
+/* Window surface: the native vibrancy material shows through a light tint
+   (macOS 27 glass is more diffused, so text stays legible over busy
+   backgrounds). The window's own corners and border come from macOS. */
 .glass {
-  background: transparent;
-  border: 0.5px solid rgb(var(--separator) / 0.12);
+  background: rgb(var(--tint) / var(--tint-alpha));
 }
+
+/* macOS 27 unified toolbar: 52pt, frosted, traffic lights centered on the left */
+.toolbar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 52px;
+  padding: 0 12px 0 88px;
+  background: rgb(var(--tint) / 0.35);
+  border-bottom: 0.5px solid rgb(var(--separator) / 0.1);
+}
+
+/* Toolbar controls: icon buttons grouped in glass capsules */
+.tool-group {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9999px;
+  background: rgb(var(--surface) / 0.06);
+  box-shadow: inset 0 0 0 0.5px rgb(var(--separator) / 0.12), 0 1px 2px rgb(0 0 0 / 0.06);
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  color: rgb(var(--label-secondary));
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.tool-btn:hover { background: rgb(var(--surface) / 0.1); color: rgb(var(--label)); }
+.tool-btn:active { background: rgb(var(--surface) / 0.16); }
+.tool-btn:disabled { opacity: 0.35; background: transparent; }
+.tool-btn svg { width: 15px; height: 15px; }
 
 /* Floating popover/menu — needs its own translucent material since it sits over
    page content, not over the window vibrancy. Adapts to light/dark. */

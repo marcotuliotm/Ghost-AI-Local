@@ -68,7 +68,7 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
                     : `Ask something... (${focusShortcut})`
               }
               disabled={!isConnected || isStreaming}
-              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors disabled:opacity-40"
+              className="w-full bg-ghost-fill border border-ghost-border rounded-full px-3.5 py-2 text-body text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors disabled:opacity-40"
               autoComplete="off"
               spellCheck={false}
             />
@@ -87,10 +87,10 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
             <button
               type="button"
               onClick={onStop}
-              className="p-1.5 rounded-lg bg-ghost-error/80 hover:bg-ghost-error transition-colors"
+              className="w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full bg-ghost-error/80 hover:bg-ghost-error transition-colors"
               title="Stop generating (Esc)"
             >
-              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
               </svg>
             </button>
@@ -98,10 +98,10 @@ export const ChatInput = forwardRef<HTMLInputElement, ChatInputProps>(
             <button
               type="submit"
               disabled={!input.trim() || isStreaming || !isConnected}
-              className="p-1.5 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover disabled:opacity-30 disabled:hover:bg-ghost-accent transition-colors"
+              className="w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full bg-ghost-accent hover:bg-ghost-accent-hover disabled:opacity-30 disabled:hover:bg-ghost-accent transition-colors"
               title="Send"
             >
-              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19V5m0 0l-7 7m7-7l7 7" />
               </svg>
             </button>

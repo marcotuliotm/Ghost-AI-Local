@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   opacity: 0.9,
-  fontSize: 12,
+  fontSize: 13, // body text (px); the whole UI scales with it
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 8192,

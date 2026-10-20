@@ -119,35 +119,35 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
       notice: m.notice,
     }))
     return (
-      <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in" data-testid="history-session">
-        <div className="flex items-center justify-between gap-2 pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
+      <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in" data-testid="history-session">
+        <div className="toolbar">
           <div className="flex items-center gap-2 min-w-0">
             <BackButton onClick={() => setOpen(null)} title="Back to history" />
-            <span className="text-sm font-medium text-ghost-text truncate" title={open.title}>{open.title}</span>
+            <span className="text-body font-semibold text-ghost-text truncate" title={open.title}>{open.title}</span>
           </div>
           <div className="flex items-center gap-1 no-drag flex-shrink-0">
             <button
               onClick={() => exportSession(open)}
-              className="px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-text hover:bg-ghost-fill-strong transition-colors"
+              className="px-2 py-0.5 rounded-full text-callout bg-ghost-fill text-ghost-text hover:bg-ghost-fill-strong transition-colors"
             >
               Export .md
             </button>
             <button
               onClick={() => deleteSession(open.id)}
-              className="px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-error hover:bg-ghost-fill-strong transition-colors"
+              className="px-2 py-0.5 rounded-full text-callout bg-ghost-fill text-ghost-error hover:bg-ghost-fill-strong transition-colors"
             >
               Delete
             </button>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 no-drag">
-          <p className="text-[9px] text-ghost-text-muted">
+          <p className="text-subhead text-ghost-text-muted">
             {formatDate(open.startedAt)}{open.model && ` · ${open.model}`}{open.preset && ` · ${open.preset}`}
           </p>
           {open.transcript.trim() && (
             <details className="bg-ghost-fill rounded-lg px-2 py-1.5" open={open.messages.length === 0}>
-              <summary className="text-[10px] text-ghost-text-muted cursor-pointer select-none">Transcript</summary>
-              <pre className="mt-1 text-[10px] text-ghost-text whitespace-pre-wrap font-sans select-text max-h-64 overflow-y-auto">{open.transcript.trim()}</pre>
+              <summary className="text-callout text-ghost-text-muted cursor-pointer select-none">Transcript</summary>
+              <pre className="mt-1 text-callout text-ghost-text whitespace-pre-wrap font-sans select-text max-h-64 overflow-y-auto">{open.transcript.trim()}</pre>
             </details>
           )}
           {bubbles.map(m => (
@@ -159,13 +159,13 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
   }
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
-      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in">
+      <div className="toolbar">
         <div className="flex items-center gap-2">
           <BackButton onClick={onBack} title="Back" />
-          <span className="text-sm font-medium text-ghost-text">History</span>
+          <span className="text-body font-semibold text-ghost-text">History</span>
         </div>
-        <label className="flex items-center gap-1.5 text-[10px] text-ghost-text cursor-pointer no-drag">
+        <label className="flex items-center gap-1.5 text-callout text-ghost-text cursor-pointer no-drag">
           <input
             type="checkbox"
             checked={settings.saveSessions}
@@ -178,13 +178,13 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-drag">
         {encrypted === false && (
-          <p className="text-[10px] text-ghost-error leading-relaxed" role="alert">
+          <p className="text-callout text-ghost-error leading-relaxed" role="alert">
             Encryption is not available on this system, so sessions are not saved.
           </p>
         )}
 
         {!settings.saveSessions && (
-          <p className="text-[10px] text-ghost-warning leading-relaxed">
+          <p className="text-callout text-ghost-warning leading-relaxed">
             Saving is off: nothing from your conversations is kept after you clear them or quit. Turn on "Save sessions" to keep the transcript, chat and meeting notes of each session on this machine, encrypted.
           </p>
         )}
@@ -195,11 +195,11 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
           onChange={e => setQuery(e.target.value)}
           placeholder="Search sessions..."
           aria-label="Search sessions"
-          className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-xs text-ghost-text placeholder:text-ghost-text-muted focus:outline-none focus:border-ghost-accent"
+          className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-body text-ghost-text placeholder:text-ghost-text-muted focus:outline-none focus:border-ghost-accent"
         />
 
         {loaded && sessions.length === 0 ? (
-          <p className="text-[10px] text-ghost-text-muted opacity-70 italic">
+          <p className="text-callout text-ghost-text-muted opacity-70 italic">
             {query ? 'No sessions match.' : 'No saved sessions.'}
           </p>
         ) : (
@@ -210,11 +210,11 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
                   onClick={() => openSession(s.id)}
                   className="w-full text-left bg-ghost-fill hover:bg-ghost-fill-strong rounded-lg px-2 py-1.5 transition-colors"
                 >
-                  <div className="text-xs text-ghost-text truncate" title={s.title}>{s.title}</div>
-                  <div className="text-[9px] text-ghost-text-muted">
+                  <div className="text-body text-ghost-text truncate" title={s.title}>{s.title}</div>
+                  <div className="text-subhead text-ghost-text-muted">
                     {formatDate(s.startedAt)}{summaryLine(s) && ` · ${summaryLine(s)}`}
                   </div>
-                  {s.snippet && <div className="mt-0.5 text-[9px] text-ghost-text-muted opacity-80 line-clamp-2">{s.snippet}</div>}
+                  {s.snippet && <div className="mt-0.5 text-subhead text-ghost-text-muted opacity-80 line-clamp-2">{s.snippet}</div>}
                 </button>
               </li>
             ))}
@@ -226,11 +226,11 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
             <button
               onClick={deleteAll}
               onBlur={() => setConfirmDeleteAll(false)}
-              className="px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-error hover:bg-ghost-fill-strong transition-colors"
+              className="px-2 py-0.5 rounded-full text-callout bg-ghost-fill text-ghost-error hover:bg-ghost-fill-strong transition-colors"
             >
               {confirmDeleteAll ? 'Click again to delete all' : 'Delete all sessions'}
             </button>
-            <span className="text-[9px] text-ghost-text-muted opacity-70">Encrypted on this machine, never uploaded.</span>
+            <span className="text-subhead text-ghost-text-muted opacity-70">Encrypted on this machine, never uploaded.</span>
           </div>
         )}
       </div>

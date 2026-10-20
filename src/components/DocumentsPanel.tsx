@@ -66,32 +66,32 @@ export function DocumentsPanel({ settings, embeddingModels, isConnected, updateS
   const remove = async (doc: DocumentInfo) => setDocs((await window.ghostAPI.docsRemove(doc.id)).docs)
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
-      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in">
+      <div className="toolbar">
         <div className="flex items-center gap-2">
           <button onClick={onBack} className="p-1 rounded hover:bg-ghost-fill-strong transition-colors no-drag" title="Back">
             <svg className="w-4 h-4 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <span className="text-sm font-medium text-ghost-text">Documents</span>
+          <span className="text-body font-semibold text-ghost-text">Documents</span>
         </div>
         <button
           onClick={handleAdd}
           disabled={busy !== ''}
-          className="px-3 py-1 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover text-xs text-white transition-colors no-drag disabled:opacity-40"
+          className="px-3 py-1 rounded-full bg-ghost-accent hover:bg-ghost-accent-hover text-body text-white transition-colors no-drag disabled:opacity-40"
         >
           {busy === 'adding' ? 'Adding...' : 'Add'}
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 no-drag">
-        <p className="text-[10px] text-ghost-text-muted leading-relaxed">
+        <p className="text-callout text-ghost-text-muted leading-relaxed">
           Add your CV, a job description, an agenda or notes (.pdf, .txt, .md). The most relevant excerpts of the documents that are on go along with each question, Suggest reply and Auto request. Files are read and indexed on this machine only.
         </p>
 
         {docs.length === 0 ? (
-          <p className="text-[10px] text-ghost-text-muted opacity-70 italic">No documents yet.</p>
+          <p className="text-callout text-ghost-text-muted opacity-70 italic">No documents yet.</p>
         ) : (
           <ul className="space-y-1.5">
             {docs.map(doc => (
@@ -104,10 +104,10 @@ export function DocumentsPanel({ settings, embeddingModels, isConnected, updateS
                   className="accent-ghost-accent"
                 />
                 <div className="flex-1 min-w-0">
-                  <div className={`text-xs truncate ${doc.enabled ? 'text-ghost-text' : 'text-ghost-text-muted line-through'}`} title={doc.name}>
+                  <div className={`text-body truncate ${doc.enabled ? 'text-ghost-text' : 'text-ghost-text-muted line-through'}`} title={doc.name}>
                     {doc.name}
                   </div>
-                  <div className="text-[9px] text-ghost-text-muted">
+                  <div className="text-subhead text-ghost-text-muted">
                     {formatSize(doc.size)} · {doc.chunkCount} excerpt{doc.chunkCount === 1 ? '' : 's'} · {doc.embeddingModel ? 'semantic + keyword' : 'keyword'}
                   </div>
                 </div>
@@ -126,30 +126,30 @@ export function DocumentsPanel({ settings, embeddingModels, isConnected, updateS
         {errors.length > 0 && (
           <div className="space-y-0.5" role="alert">
             {errors.map((e, i) => (
-              <p key={i} className="text-[10px] text-ghost-error">{e.name}: {e.error}</p>
+              <p key={i} className="text-callout text-ghost-error">{e.name}: {e.error}</p>
             ))}
           </div>
         )}
 
         <div className="border-t border-ghost-border pt-3 space-y-1.5">
-          <div className="text-xs text-ghost-text">Semantic search</div>
+          <div className="text-body text-ghost-text">Semantic search</div>
           {installed ? (
             <>
-              <p className="text-[10px] text-ghost-text-muted">
+              <p className="text-callout text-ghost-text-muted">
                 Using <code className="bg-ghost-fill-strong px-1 rounded">{installed}</code> (local) to match by meaning, combined with keyword search.
               </p>
               {needsReindex && (
                 <button
                   onClick={handleReindex}
                   disabled={busy !== ''}
-                  className="px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-text hover:bg-ghost-fill-strong transition-colors disabled:opacity-40"
+                  className="px-2 py-0.5 rounded-full text-callout bg-ghost-fill text-ghost-text hover:bg-ghost-fill-strong transition-colors disabled:opacity-40"
                 >
                   {busy === 'reindexing' ? 'Indexing...' : 'Index existing documents'}
                 </button>
               )}
             </>
           ) : (
-            <p className="text-[10px] text-ghost-text-muted leading-relaxed">
+            <p className="text-callout text-ghost-text-muted leading-relaxed">
               {isConnected ? 'Keyword search only.' : 'Ollama is not connected — keyword search only.'} For matching by meaning, install a local embedding model: <code className="bg-ghost-fill-strong px-1 rounded select-text">ollama pull {settings.embeddingModel}</code>
             </p>
           )}
@@ -158,7 +158,7 @@ export function DocumentsPanel({ settings, embeddingModels, isConnected, updateS
               aria-label="Embedding model"
               value={installed ?? ''}
               onChange={e => updateSettings({ embeddingModel: e.target.value })}
-              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-[10px] text-ghost-text focus:outline-none focus:border-ghost-accent appearance-none"
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-callout text-ghost-text focus:outline-none focus:border-ghost-accent appearance-none"
             >
               {embeddingModels.map(m => <option key={m} value={m}>{m}</option>)}
             </select>

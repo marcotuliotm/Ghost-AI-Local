@@ -40,7 +40,7 @@ describe('mergeSettings', () => {
     const merged = mergeSettings(DEFAULT_SETTINGS, { opacity: '0.5', contextLength: NaN, fontSize: null, selectedModel: 7 })
     expect(merged.opacity).toBe(0.9)
     expect(merged.contextLength).toBe(8192)
-    expect(merged.fontSize).toBe(12)
+    expect(merged.fontSize).toBe(13)
     expect(merged.selectedModel).toBe('gemma4:latest')
   })
 
@@ -105,5 +105,11 @@ describe('mergeSettings', () => {
     // Saved before the setup existed → an existing user
     expect(mergeSettings(DEFAULT_SETTINGS, { selectedModel: 'llama3:8b' }).onboardingCompleted).toBe(true)
     expect(mergeSettings(DEFAULT_SETTINGS, { onboardingCompleted: false }).onboardingCompleted).toBe(false)
+  })
+
+  it('should keep the font size within the range the layout supports', () => {
+    expect(mergeSettings(DEFAULT_SETTINGS, { fontSize: 30 }).fontSize).toBe(17)
+    expect(mergeSettings(DEFAULT_SETTINGS, { fontSize: 8 }).fontSize).toBe(11)
+    expect(mergeSettings(DEFAULT_SETTINGS, { fontSize: 14.4 }).fontSize).toBe(14)
   })
 })

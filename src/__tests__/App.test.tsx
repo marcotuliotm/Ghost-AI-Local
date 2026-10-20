@@ -57,7 +57,7 @@ describe('App', () => {
 
       // Click back - find the back button in the HelpPanel (not the hidden Overlay)
       // The HelpPanel back button is near the "Help" header text
-      const helpHeader = helpElements.find(el => el.className.includes('text-sm'))!
+      const helpHeader = helpElements.find(el => el.className.includes('font-semibold'))!
       const helpBackButton = helpHeader.closest('.flex')!.querySelector('button')!
       fireEvent.click(helpBackButton)
 
