@@ -27,8 +27,8 @@ describe('SessionStore', () => {
   it('should save one encrypted file per session and read it back after a restart', () => {
     const store = new SessionStore(dir, cipher())
     expect(store.encrypted).toBe(true)
-    expect(store.save(session())).toBe(true)
-    expect(store.save(session({ transcript: 'You: hello again', updatedAt: 2 }))).toBe(true) // replaces
+    expect(store.save(session())).toEqual({ saved: true })
+    expect(store.save(session({ transcript: 'You: hello again', updatedAt: 2 }))).toEqual({ saved: true }) // replaces
     expect(fs.readdirSync(dir)).toEqual([`${ID}.json`])
     expect(fileText()).not.toContain('hello')
     expect(JSON.parse(fileText())).toMatchObject({ version: 1, encrypted: expect.any(String) })
@@ -64,7 +64,7 @@ describe('SessionStore', () => {
 
   it('should refuse malformed sessions and path-like ids', () => {
     const store = new SessionStore(dir, cipher())
-    expect(store.save({ ...session(), id: '../settings' })).toBe(false)
+    expect(store.save({ ...session(), id: '../settings' })).toEqual({ saved: false })
     expect(store.get('../settings')).toBeNull()
     store.delete('../settings')
     expect(fs.existsSync(dir)).toBe(false)
@@ -86,5 +86,16 @@ describe('SessionStore', () => {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(path.join(dir, `${ID2}.json`), JSON.stringify(session()))
     expect(new SessionStore(dir, cipher()).search('')).toEqual([])
+  })
+
+  it('should refuse to save again a session deleted in this run', () => {
+    const store = new SessionStore(dir, cipher())
+    store.save(session())
+    store.save(session({ id: ID2 }))
+    store.delete(ID)
+    expect(store.save(session({ transcript: 'You: more' }))).toEqual({ saved: false, deleted: true })
+    store.deleteAll()
+    expect(store.save(session({ id: ID2 }))).toEqual({ saved: false, deleted: true })
+    expect(fs.readdirSync(dir)).toEqual([])
   })
 })

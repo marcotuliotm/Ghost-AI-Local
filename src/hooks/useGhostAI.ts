@@ -318,6 +318,7 @@ export function useGhostAI() {
         content: text ? `${text}\n\n${message}` : message,
         thinking,
         isStreaming: false,
+        notice: undefined, // drop the interim retry notice
       })
     }
     if (activeRef.current === active) activeRef.current = null

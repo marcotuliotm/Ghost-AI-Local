@@ -30,6 +30,9 @@ const FILE_VERSION = 1
 export class SessionStore {
   private sessions = new Map<string, Session>()
   private loaded = false
+  // Deleted this run: the renderer may still hold that session open and save
+  // it again on the next change; refusing lets it start a new one instead
+  private deleted = new Set<string>()
 
   constructor(private dir: string, private cipher: Cipher | null) {}
 
@@ -83,14 +86,18 @@ export class SessionStore {
     }
   }
 
-  /** Create or replace a session. Throws when encryption is unavailable; false for a malformed one. */
-  save(raw: unknown): boolean {
+  /**
+   * Create or replace a session. Not saved when malformed, or when that
+   * session was deleted (`deleted: true`). Throws when encryption is unavailable.
+   */
+  save(raw: unknown): { saved: boolean; deleted?: boolean } {
     const session = sanitizeSession(raw)
-    if (!session) return false
+    if (!session) return { saved: false }
+    if (this.deleted.has(session.id)) return { saved: false, deleted: true }
     this.load()
     this.write(session)
     this.sessions.set(session.id, session)
-    return true
+    return { saved: true }
   }
 
   search(query: string): SessionSummary[] {
@@ -108,11 +115,14 @@ export class SessionStore {
     if (!isValidSessionId(id)) return
     this.load()
     this.sessions.delete(id)
+    this.deleted.add(id)
     fs.rmSync(this.file(id), { force: true })
   }
 
   /** Every session file, including ones that couldn't be read. */
   deleteAll() {
+    this.load()
+    for (const id of this.sessions.keys()) this.deleted.add(id)
     this.sessions.clear()
     try {
       for (const name of fs.readdirSync(this.dir)) {

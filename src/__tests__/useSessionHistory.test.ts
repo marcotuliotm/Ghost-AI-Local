@@ -64,4 +64,26 @@ describe('useSessionHistory', () => {
     expect(new Set(ids).size).toBe(3)
     expect(saved()[0].messages).toHaveLength(1) // the first session kept its chat
   })
+
+  it('should keep a session deleted in History deleted and save only what comes after', async () => {
+    const q1 = msg({ id: 'q1', content: 'first question' })
+    const { rerender } = render({ messages: [q1], transcript: 'You: before' })
+    flush()
+    await act(async () => {})
+    const firstId = saved()[0].id
+    // Deleted in History: the store now refuses that id
+    vi.mocked(window.ghostAPI.sessionsSave).mockResolvedValueOnce({ success: false, deleted: true })
+    const q2 = msg({ id: 'q2', content: 'after deleting' })
+    rerender({ ...base, messages: [q1, q2], transcript: 'You: before\nYou: after' })
+    flush()
+    await act(async () => {}) // the refused save resolves
+    rerender({ ...base, messages: [q1, q2, msg({ id: 'a2', role: 'assistant', content: 'reply' })], transcript: 'You: before\nYou: after' })
+    flush()
+    await act(async () => {})
+    const last = saved().at(-1)!
+    expect(last.id).not.toBe(firstId)
+    expect(last.messages.map(m => m.content)).toEqual(['after deleting', 'reply'])
+    expect(last.transcript).toBe('You: after')
+    expect(JSON.stringify(last)).not.toContain('first question')
+  })
 })

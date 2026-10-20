@@ -97,16 +97,32 @@ export function summarizeSession(s: Session, snippet?: string): SessionSummary {
   }
 }
 
+// Copies only the fields a SessionMessage may have, so nothing else (a
+// screenshot, reasoning) can reach the disk whatever the caller sends
+function sanitizeMessage(raw: unknown): SessionMessage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const m = raw as Record<string, unknown>
+  if ((m.role !== 'user' && m.role !== 'assistant') || typeof m.content !== 'string' || typeof m.timestamp !== 'number') return null
+  const sources = Array.isArray(m.sources) ? m.sources.filter((x): x is string => typeof x === 'string') : []
+  return {
+    role: m.role,
+    content: m.content,
+    timestamp: m.timestamp,
+    ...(m.hadScreenshot === true ? { hadScreenshot: true } : {}),
+    ...(m.kind === 'notes' ? { kind: 'notes' as const } : {}),
+    ...(sources.length ? { sources } : {}),
+    ...(m.stopped === true ? { stopped: true } : {}),
+    ...(typeof m.notice === 'string' && m.notice ? { notice: m.notice } : {}),
+  }
+}
+
 // Validates a session coming from the renderer or from disk (null if malformed)
 export function sanitizeSession(raw: unknown): Session | null {
   if (!raw || typeof raw !== 'object') return null
   const s = raw as Record<string, unknown>
   if (!isValidSessionId(s.id) || typeof s.startedAt !== 'number' || typeof s.updatedAt !== 'number') return null
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
-  const messages = Array.isArray(s.messages)
-    ? s.messages.filter((m): m is SessionMessage =>
-      Boolean(m) && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && typeof m.timestamp === 'number')
-    : []
+  const messages = Array.isArray(s.messages) ? s.messages.map(sanitizeMessage).filter((m): m is SessionMessage => m !== null) : []
   return {
     id: s.id,
     startedAt: s.startedAt,

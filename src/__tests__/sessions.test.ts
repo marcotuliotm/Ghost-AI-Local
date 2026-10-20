@@ -74,6 +74,17 @@ describe('sanitizeSession', () => {
     expect(sanitizeSession(null)).toBeNull()
   })
 
+  it('should keep only the known message fields (never a screenshot or reasoning)', () => {
+    const s = sanitizeSession({ ...session(), messages: [
+      { role: 'user', content: 'Look', timestamp: 1, screenshot: 'data:image/png;base64,AAAA', hadScreenshot: true, extra: 1 },
+      { role: 'assistant', content: 'ok', timestamp: 2, thinking: 'secret', sources: ['cv.pdf', 3], kind: 'notes', stopped: 'yes' },
+    ] })
+    expect(s?.messages).toEqual([
+      { role: 'user', content: 'Look', timestamp: 1, hadScreenshot: true },
+      { role: 'assistant', content: 'ok', timestamp: 2, sources: ['cv.pdf'], kind: 'notes' },
+    ])
+  })
+
   it('should drop invalid messages and fill missing strings', () => {
     const s = sanitizeSession({ id: ID, startedAt: 1, updatedAt: 1, messages: [{ role: 'system', content: 'x', timestamp: 1 }, { role: 'user', content: 'ok', timestamp: 1 }, 'junk'] })
     expect(s?.messages).toEqual([{ role: 'user', content: 'ok', timestamp: 1 }])

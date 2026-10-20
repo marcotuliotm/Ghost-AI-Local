@@ -846,7 +846,8 @@ function setupIPC() {
   // --- Session history (only saved while the setting is on; the renderer decides) ---
   ipcMain.handle('sessions-save', (_event, session: unknown) => {
     try {
-      return { success: sessions().save(session) }
+      const { saved, deleted } = sessions().save(session)
+      return { success: saved, ...(deleted ? { deleted: true } : {}) }
     } catch (err: any) {
       return { success: false, error: err.message }
     }

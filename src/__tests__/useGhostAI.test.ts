@@ -873,6 +873,16 @@ describe('useGhostAI', () => {
       }))
     })
 
+    it('should drop the interim notice when the retry fails', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn()
+        .mockResolvedValueOnce({ success: true, content: '', thinking: 'long reasoning...', doneReason: 'length' })
+        .mockResolvedValueOnce({ success: false, error: 'model runner has unexpectedly stopped' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(result.current.messages[1].content).toContain('model runner has unexpectedly stopped')
+      expect(result.current.messages[1].notice).toBeUndefined()
+    })
+
     it('should explain an empty reply when even the retry has no room', async () => {
       window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: true, content: '', thinking: '', doneReason: 'length' })
       const { result } = await withModel(thinkingModel)

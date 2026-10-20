@@ -34,7 +34,8 @@ export interface GhostAPI {
   // Session history (userData/sessions, written only while saveSessions is on)
   // Whether session files are encrypted (safeStorage); without it nothing is saved
   sessionsStatus: () => Promise<{ encrypted: boolean }>
-  sessionsSave: (session: Session) => Promise<{ success: boolean; error?: string }>
+  // deleted: that session was deleted in History — start a new one
+  sessionsSave: (session: Session) => Promise<{ success: boolean; deleted?: boolean; error?: string }>
   // Newest first; a query keeps sessions containing all its words (with a snippet)
   sessionsSearch: (query: string) => Promise<{ sessions: SessionSummary[] }>
   sessionsGet: (id: string) => Promise<{ session: Session | null }>
