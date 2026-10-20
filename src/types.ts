@@ -118,6 +118,7 @@ export interface StreamResult {
   success: boolean
   content?: string
   thinking?: string
+  doneReason?: string // 'length' = stopped because num_ctx ran out
   aborted?: boolean
   error?: string
 }
@@ -151,6 +152,7 @@ export interface ChatMessage {
   thinking?: string // the model's reasoning, shown collapsed above the reply
   stopped?: boolean // generation was stopped by the user
   sources?: string[] // documents whose excerpts were sent with this request
+  notice?: string // something the user should know about this reply (e.g. cut off by the context window)
   kind?: 'notes' // assistant reply holding meeting notes (offers Save .md)
 }
 

@@ -693,6 +693,7 @@ function setupIPC() {
     activeStreams.set(requestId, controller)
     let content = ''
     let thinking = ''
+    let doneReason: string | undefined
 
     try {
       const response = await ollamaFetch(`${normalizeOllamaUrl(payload.baseUrl)}/api/chat`, {
@@ -724,6 +725,7 @@ function setupIPC() {
         const line = parseStreamLine(raw)
         if (!line) return
         if (line.error) throw new Error(line.error)
+        if (line.doneReason) doneReason = line.doneReason
         if (!line.content && !line.thinking) return
         content += line.content
         thinking += line.thinking
@@ -748,7 +750,7 @@ function setupIPC() {
       buffer += decoder.decode()
       handleLine(buffer)
 
-      return { success: true, content, thinking }
+      return { success: true, content, thinking, doneReason }
     } catch (error: any) {
       // Stopped by the user: keep what was generated so far
       if (controller.signal.aborted) return { success: true, aborted: true, content, thinking }

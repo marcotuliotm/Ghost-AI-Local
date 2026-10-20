@@ -43,10 +43,19 @@ export function estimateMessageTokens(msg: OllamaMessage): number {
   return MESSAGE_OVERHEAD_TOKENS + estimateTokens(msg.content) + (msg.images?.length ?? 0) * IMAGE_TOKENS
 }
 
-// Tokens available for the prompt once the reply has room: a quarter of the
-// window, capped at 2048 so large windows still go mostly to context.
-export function promptBudget(contextLength: number): number {
-  const reserve = Math.min(2048, Math.floor(contextLength * 0.25))
+// Room kept for the reply. A thinking model writes its reasoning into the same
+// window before answering — qwen3.5 measured ~3,200 reasoning tokens for a
+// transcript summary — and with KV-cache shifting unavailable Ollama stops at
+// num_ctx: an over-full prompt then leaves an empty answer. So reasoning gets
+// up to half the window (max 4096); otherwise a quarter (max 2048).
+export const REPLY_RESERVE = 2048
+export const REASONING_REPLY_RESERVE = 4096
+
+// Tokens available for the prompt once the reply (and reasoning) has room.
+export function promptBudget(contextLength: number, reasoning = false): number {
+  const reserve = reasoning
+    ? Math.min(REASONING_REPLY_RESERVE, Math.floor(contextLength * 0.5))
+    : Math.min(REPLY_RESERVE, Math.floor(contextLength * 0.25))
   return Math.max(0, contextLength - reserve)
 }
 

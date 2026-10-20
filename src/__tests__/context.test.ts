@@ -208,4 +208,14 @@ describe('transcriptSystemMessage', () => {
   it('should return null for empty context', () => {
     expect(transcriptSystemMessage('  ')).toBeNull()
   })
+
+describe('reply reserve for reasoning', () => {
+  it('should keep up to half the window (max 4096) free when the model reasons', () => {
+    expect(promptBudget(8192, true)).toBe(4096)
+    expect(promptBudget(4096, true)).toBe(2048)
+    expect(promptBudget(32768, true)).toBe(28672)
+    expect(promptBudget(8192, false)).toBe(6144)
+    expect(promptBudget(8192)).toBe(6144)
+  })
+})
 })

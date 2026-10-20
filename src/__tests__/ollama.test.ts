@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isCloudModel,
   isEmbeddingModel,
+  isReasoningActive,
   isLocalOllamaUrl,
   normalizeOllamaUrl,
   parseStreamLine,
@@ -99,6 +100,27 @@ describe('isEmbeddingModel', () => {
     expect(isEmbeddingModel({ name: 'nomic-embed-text:latest', capabilities: ['embedding'] })).toBe(true)
     expect(isEmbeddingModel({ name: 'qwen3.5:latest', capabilities: ['completion', 'thinking'] })).toBe(false)
     expect(isEmbeddingModel({ name: 'old' })).toBe(false)
+  })
+})
+
+describe('isReasoningActive', () => {
+  const models = [
+    { name: 'qwen3.5:latest', capabilities: ['completion', 'thinking'] },
+    { name: 'gemma3:4b', capabilities: ['completion'] },
+    { name: 'old:latest' },
+  ]
+  it('should reason only with the setting on and a thinking model', () => {
+    expect(isReasoningActive(true, 'qwen3.5:latest', models)).toBe(true)
+    expect(isReasoningActive(false, 'qwen3.5:latest', models)).toBe(false)
+    expect(isReasoningActive(true, 'gemma3:4b', models)).toBe(false)
+  })
+  it('should assume reasoning when capabilities are unknown', () => {
+    expect(isReasoningActive(true, 'old:latest', models)).toBe(true)
+    expect(isReasoningActive(true, 'not-listed', [])).toBe(true)
+  })
+  it('should read why generation ended', () => {
+    expect(parseStreamLine('{"message":{"content":""},"done":true,"done_reason":"length"}')?.doneReason).toBe('length')
+    expect(parseStreamLine('{"message":{"content":"x"},"done":false}')?.doneReason).toBeUndefined()
   })
 })
 })

@@ -209,6 +209,7 @@ interface ChatMessage {
   stopped?: boolean            // generation stopped by the user (partial reply kept)
   kind?: 'notes'               // meeting-notes reply (bubble offers Save .md)
   sources?: string[]           // documents whose excerpts went with the request ("From: …" under the reply)
+  notice?: string              // why a reply is incomplete / answered without reasoning (shown under it)
 }
 ```
 
@@ -233,7 +234,7 @@ A "Questions" toggle (next to Auto, when the source includes system audio) answe
 Without headphones the mic hears the call from the speakers (Chromium's echo cancellation only covers audio this page plays), so the same words would appear as the other side *and* as "You". In Both mode `EchoFilter` (`src/lib/echo.ts`) remembers recent texts per channel for 8s (by when the segment closed): a mic text whose words overlap ≥60% with a recent system text (overlap coefficient, accents/punctuation ignored, ≥3 words) is dropped; if the mic text was transcribed first, it is retracted from the transcript when the matching system text arrives (`removeTrailingText`). Different sentences on the two channels are kept.
 
 ### Context management (num_ctx + token budget)
-Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context, systemPrompt?, standalone?, kind? })` builds: system prompt (the active preset's, unless overridden) → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`). `standalone: true` leaves the chat history out (meeting notes).
+Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context, systemPrompt?, standalone?, kind? })` builds (with the reasoning-aware budget, see "Reasoning"): system prompt (the active preset's, unless overridden) → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`). `standalone: true` leaves the chat history out (meeting notes).
 
 The **live transcript is never embedded in user messages or stored in history**. `Overlay` passes it as `context` on each request (typed questions, quick actions, Suggest reply, Auto, Summarize, Summary PT). `useTranscriptContext` keeps it bounded: once the unsummarized transcript passes ~40% of the prompt budget, the older part is folded into a running summary in the background via `ollamaChat` (at most half the budget per pass; 30s backoff on failure) and only the recent ~15% stays verbatim. Clearing/restarting the transcript drops the summary. If summarization lags, the verbatim part is still capped (`transcriptTail`).
 
@@ -244,6 +245,8 @@ Every streaming request gets a `requestId` (`useGhostAI.startRequest`). The main
 
 ### Reasoning (thinking models)
 `settings.reasoning` (default **on**) leaves `think` out of chat requests, so thinking models (capability `thinking` in `/api/tags`, e.g. qwen3) reason and the reasoning streams separately into `ChatMessage.thinking`, shown live in a collapsible block above the reply. Off sends `think: false`. Never send `think: true`: Ollama rejects it for models without the capability. Background calls (file names, progressive summary) always send `think: false` — reasoning there only delays them and blocks Ollama for the chat.
+
+**Reasoning needs room in the window.** The thinking is generated into the same `num_ctx` as the prompt, and for qwen3.5 Ollama disables KV-cache shifting, so generation simply *stops* at `num_ctx` (`done_reason: "length"`). Measured: a transcript summary took ~3,200 reasoning tokens; with a 5,000-token prompt (history full of earlier summaries) in an 8,192 window the reply came back **empty**. So when `isReasoningActive` (setting on and the model has the `thinking` capability — unknown capabilities count as reasoning) `promptBudget(contextLength, true)` reserves up to half the window (max `REASONING_REPLY_RESERVE` = 4096) instead of a quarter (max 2048); `useTranscriptContext` and the notes request use the same budget. If a reply still ends with `done_reason: "length"` and no content, `useGhostAI` asks again with `think: false` (keeping the reasoning shown) and the reply carries a `notice`; a partial answer cut by the window gets a "Cut off" notice. Summarize / Summary PT are `standalone` (transcript only), so repeated summaries don't pile up in their own prompts.
 
 ### Markdown replies
 Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm` + `rehype-highlight`; styles in `globals.css` under `.response-content`). For the zero-network rule nothing in a reply may load or navigate: raw HTML stays disabled (react-markdown default — do not add `rehype-raw`), links render as text with the URL as a tooltip, and images become `[image: alt]`. Code blocks get a copy button. User messages stay plain text.
@@ -405,7 +408,7 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **477 tests** across 38 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **489 tests** across 38 test files under `src/__tests__/`.
 
 ### Running tests
 
