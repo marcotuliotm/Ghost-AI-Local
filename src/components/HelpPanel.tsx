@@ -261,7 +261,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Reasoning</span>}
               label="Reasoning"
-              description="Thinking models (e.g. qwen3) reason before answering; the reasoning is shown above the reply and collapses when the answer starts. Turn it off in Settings for faster replies"
+              description="Thinking models (e.g. qwen3) reason before answering; the reasoning is shown above the reply and collapses when the answer starts. Reasoning takes room in the context window; if it fills up before an answer, Ghost AI answers without reasoning and says so. Turn it off in Settings for faster replies"
             />
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Copy</span>}

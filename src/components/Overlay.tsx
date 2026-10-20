@@ -6,6 +6,7 @@ import { AudioCapture } from './AudioCapture'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
 import type { SendMessageOptions } from '../hooks/useGhostAI'
 import { usageRatio, type ContextUsage } from '../lib/context'
+import { isReasoningActive } from '../lib/ollama'
 import { fillSuggestReplyPrompt, getActivePreset } from '../lib/presets'
 import { buildMeetingNotesRequest, normalizeNotesMarkdown, notesDocument, notesLanguage } from '../lib/notes'
 import { fileStamp, suggestFilename } from '../lib/filename'
@@ -81,7 +82,9 @@ export function Overlay({
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const presetMenuRef = useRef<HTMLDivElement>(null)
   // Transcript context (running summary + recent verbatim), built per request
-  const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected)
+  // Whether the chat model will reason: its thinking needs room in the window
+  const reasoning = isReasoningActive(settings.reasoning, settings.selectedModel, models)
+  const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected, reasoning)
   // Supplies the Suggest reply template and the quick actions (useGhostAI uses its system prompt)
   const activePreset = getActivePreset(settings)
   // Labels for the configured global shortcuts ("Cmd+Shift+S")
@@ -168,7 +171,7 @@ export function Overlay({
   // Sent without chat history; the reply is tagged so its bubble offers Save .md.
   const handleGenerateNotes = useCallback(() => {
     const language = notesLanguage(settings.whisperModel, settings.transcriptionLanguage)
-    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language, transcriptSpeakers)
+    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language, transcriptSpeakers, reasoning)
     if (!request.context) return
     sendMessage(request.prompt, undefined, {
       context: request.context,
@@ -176,7 +179,7 @@ export function Overlay({
       standalone: true,
       kind: 'notes',
     })
-  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, transcriptSpeakers, sendMessage])
+  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, transcriptSpeakers, sendMessage, reasoning])
 
   const handleSaveNotes = useCallback(async (markdown: string) => {
     const now = new Date()
@@ -458,10 +461,12 @@ export function Overlay({
               sendMessage(fillSuggestReplyPrompt(activePreset.suggestReplyPrompt, text), undefined, { context: getTranscriptContext() })
             }}
             onSummarize={() => {
-              sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext() })
+              // Summaries come from the transcript alone: earlier summaries in the
+              // chat would only repeat it and fill the context window
+              sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext(), standalone: true })
             }}
             onSummarizePT={() => {
-              sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext() })
+              sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext(), standalone: true })
             }}
             onNotes={handleGenerateNotes}
             onTranscriptChange={handleTranscriptChange}

@@ -77,9 +77,10 @@ export function buildMeetingNotesRequest(
   contextLength: number,
   language: string | null = null,
   speakers: string[] = [],
+  reasoning = false,
 ): MeetingNotesRequest {
   const systemPrompt = meetingNotesInstructions(speakers.length > 0 ? speakers : detectSpeakers(context), language)
-  const available = promptBudget(contextLength)
+  const available = promptBudget(contextLength, reasoning)
     - estimateTokens(systemPrompt) - estimateTokens(NOTES_REQUEST) - REQUEST_OVERHEAD_TOKENS
   const fitted = estimateTokens(context) > available ? transcriptTail(context, Math.max(0, available)) : context.trim()
   return { prompt: NOTES_REQUEST, systemPrompt, context: fitted }
