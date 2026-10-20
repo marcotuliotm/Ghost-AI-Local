@@ -5,10 +5,11 @@ import { HelpPanel } from './components/HelpPanel'
 import { CompactView } from './components/CompactView'
 import { Onboarding } from './components/Onboarding'
 import { DocumentsPanel } from './components/DocumentsPanel'
+import { HistoryPanel } from './components/HistoryPanel'
 import { useGhostAI } from './hooks/useGhostAI'
 import { formatAccelerator, isMacPlatform } from './lib/shortcuts'
 
-type View = 'overlay' | 'settings' | 'help' | 'compact' | 'onboarding' | 'documents'
+type View = 'overlay' | 'settings' | 'help' | 'compact' | 'onboarding' | 'documents' | 'history'
 
 export default function App() {
   const [view, setView] = useState<View>('overlay')
@@ -72,6 +73,7 @@ export default function App() {
           onOpenHelp={() => setView('help')}
           onCompact={toggleCompact}
           onOpenDocuments={() => setView('documents')}
+          onOpenHistory={() => setView('history')}
         />
       </div>
       {view === 'compact' && (
@@ -98,6 +100,13 @@ export default function App() {
           settings={settings}
           embeddingModels={ghostAI.embeddingModels}
           isConnected={ghostAI.isConnected}
+          updateSettings={updateSettings}
+          onBack={() => setView('overlay')}
+        />
+      )}
+      {view === 'history' && (
+        <HistoryPanel
+          settings={settings}
           updateSettings={updateSettings}
           onBack={() => setView('overlay')}
         />

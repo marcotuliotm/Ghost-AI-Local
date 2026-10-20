@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hideFromScreenShare: true,
   onboardingCompleted: false,
   embeddingModel: DEFAULT_EMBEDDING_MODEL,
+  saveSessions: false, // session history is opt-in
 }
 
 // Requests made while a reply is streaming wait here (screenshot shortcut,
