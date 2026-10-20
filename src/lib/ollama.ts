@@ -61,10 +61,24 @@ export function supportsThinking(model: OllamaTagModel | undefined): boolean {
   return Boolean(model?.capabilities?.includes('thinking'))
 }
 
+/**
+ * Whether requests to `modelName` will reason: the Reasoning setting is on and
+ * the model can think. An unknown model (list not loaded yet, or an Ollama
+ * without capabilities) counts as reasoning, so the bigger reply reserve errs
+ * on the safe side.
+ */
+export function isReasoningActive(reasoning: boolean, modelName: string, models: OllamaTagModel[]): boolean {
+  if (!reasoning) return false
+  const model = models.find(m => m.name === modelName)
+  return !model?.capabilities || supportsThinking(model)
+}
+
 export interface StreamLine {
   content: string
   thinking: string
   done: boolean
+  // Why generation ended on the final line: 'stop', or 'length' when num_ctx ran out
+  doneReason?: string
   error?: string
 }
 
@@ -78,6 +92,7 @@ export function parseStreamLine(line: string): StreamLine | null {
       content: typeof json.message?.content === 'string' ? json.message.content : '',
       thinking: typeof json.message?.thinking === 'string' ? json.message.thinking : '',
       done: json.done === true,
+      ...(typeof json.done_reason === 'string' ? { doneReason: json.done_reason } : {}),
       ...(typeof json.error === 'string' ? { error: json.error } : {}),
     }
   } catch {

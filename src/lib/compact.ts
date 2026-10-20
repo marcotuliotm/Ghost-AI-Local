@@ -8,7 +8,7 @@ export interface Rect {
 }
 
 // Small enough to sit over a call without covering it, big enough for a short reply.
-export const COMPACT_SIZE = { width: 360, height: 160 }
+export const COMPACT_SIZE = { width: 400, height: 180 }
 
 /**
  * Bounds for the compact window: anchored to the top-right corner of the

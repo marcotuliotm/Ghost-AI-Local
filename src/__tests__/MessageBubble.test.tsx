@@ -217,4 +217,11 @@ describe('MessageBubble', () => {
       expect(screen.getByText('From: cv.pdf, job.md')).toBeInTheDocument()
     })
   })
+
+  describe('notices', () => {
+    it('should show why a reply is incomplete', () => {
+      render(<MessageBubble message={{ id: 'n', role: 'assistant', content: 'Partial', timestamp: Date.now(), notice: 'Cut off: the context window is full.' }} />)
+      expect(screen.getByText('Cut off: the context window is full.')).toBeInTheDocument()
+    })
+  })
 })

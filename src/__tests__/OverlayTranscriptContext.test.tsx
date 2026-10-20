@@ -77,7 +77,8 @@ describe('Overlay transcript context', () => {
     for (const [prompt, screenshot, options] of sendMessage.mock.calls) {
       expect(prompt).not.toContain('budget')
       expect(screenshot).toBeUndefined()
-      expect(options).toEqual({ context: TRANSCRIPT })
+      // Transcript only: earlier summaries in the chat would just fill the window
+      expect(options).toEqual({ context: TRANSCRIPT, standalone: true })
     }
     expect(sendMessage.mock.calls[1][0]).toContain('pt-BR')
   })

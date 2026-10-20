@@ -14,6 +14,7 @@ import {
   dialog,
   clipboard,
   shell,
+  safeStorage,
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -38,7 +39,9 @@ import {
 } from '../src/lib/shortcuts'
 import { FULL_SCREENSHOT_MAX_EDGE, fitWithin, nativeCaptureSize } from '../src/lib/screenshot'
 import { compactBounds } from '../src/lib/compact'
+import { defaultWindowBounds, TRAFFIC_LIGHT_POSITION, WINDOW_MIN_SIZE } from '../src/lib/window'
 import { DocumentStore, type Embedder } from './documents'
+import { SessionStore, type Cipher } from './sessions'
 import { embeddingPrefix, findModel } from '../src/lib/rag'
 
 // Fix macOS system-audio loopback on Electron 39+ (Chromium 142+).
@@ -50,12 +53,6 @@ import { embeddingPrefix, findModel } from '../src/lib/rag'
 // the Screen Recording permission the app already requests. MUST be set before app is ready.
 // Ref: https://github.com/electron/electron/issues/49607
 app.commandLine.appendSwitch('disable-features', 'MacCatapLoopbackAudioForScreenShare')
-
-// Avoid the macOS "ghost-ai Safe Storage" keychain prompt. Chromium stores an
-// encryption key in the login keychain to encrypt its local network/cookie data;
-// since Ghost AI keeps nothing sensitive on disk (only plain-JSON settings, no
-// cookies/secrets), use a mock keychain so the OS never prompts for the password.
-app.commandLine.appendSwitch('use-mock-keychain')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -94,17 +91,16 @@ const TRAY_ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWElEQVR4nGNgoBGQBeIMIO6H4gyoGFEApOE/DtxPSPM2PJpheBs5NhN0iSwJmmEYJUwyyDAgg1znY/UGxQZQ7AWKA5FUb+BMUBQlJGJcQjApwwBFmYkkAAB0qod5uswDxAAAAABJRU5ErkJggg=='
 
 function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const bounds = defaultWindowBounds(screen.getPrimaryDisplay().workArea)
 
   mainWindow = new BrowserWindow({
-    width: 420,
-    height: 680,
-    x: width - 440,
-    y: 60,
+    ...bounds,
+    minWidth: WINDOW_MIN_SIZE.width,
+    minHeight: WINDOW_MIN_SIZE.height,
     // macOS-native chrome: hidden title bar exposes the real traffic-light
     // buttons (red/yellow/green) in the top-left corner.
     titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 12, y: 14 },
+    trafficLightPosition: TRAFFIC_LIGHT_POSITION, // centered in the 52pt toolbar
     alwaysOnTop: true,
     resizable: true,
     hasShadow: true,
@@ -482,6 +478,19 @@ let cloudModelNames = new Set<string>()
 // Local embedding models seen in the last /api/tags (documents retrieval)
 let embeddingModelNames: string[] = []
 
+let sessionStore: SessionStore | null = null
+function sessions(): SessionStore {
+  if (!sessionStore) {
+    // safeStorage keeps its key in the macOS Keychain ("ghost-ai Safe Storage"),
+    // so saved sessions can't be read by copying the files. Only after app ready.
+    const cipher: Cipher | null = safeStorage.isEncryptionAvailable()
+      ? { encrypt: text => safeStorage.encryptString(text), decrypt: data => safeStorage.decryptString(data) }
+      : null
+    sessionStore = new SessionStore(path.join(app.getPath('userData'), 'sessions'), cipher)
+  }
+  return sessionStore
+}
+
 let documentStore: DocumentStore | null = null
 function documents(): DocumentStore {
   if (!documentStore) documentStore = new DocumentStore(path.join(app.getPath('userData'), 'documents'))
@@ -693,6 +702,7 @@ function setupIPC() {
     activeStreams.set(requestId, controller)
     let content = ''
     let thinking = ''
+    let doneReason: string | undefined
 
     try {
       const response = await ollamaFetch(`${normalizeOllamaUrl(payload.baseUrl)}/api/chat`, {
@@ -724,6 +734,7 @@ function setupIPC() {
         const line = parseStreamLine(raw)
         if (!line) return
         if (line.error) throw new Error(line.error)
+        if (line.doneReason) doneReason = line.doneReason
         if (!line.content && !line.thinking) return
         content += line.content
         thinking += line.thinking
@@ -748,7 +759,7 @@ function setupIPC() {
       buffer += decoder.decode()
       handleLine(buffer)
 
-      return { success: true, content, thinking }
+      return { success: true, content, thinking, doneReason }
     } catch (error: any) {
       // Stopped by the user: keep what was generated so far
       if (controller.signal.aborted) return { success: true, aborted: true, content, thinking }
@@ -832,6 +843,27 @@ function setupIPC() {
     return { chunks: await documents().search(String(opts.query ?? ''), embed, model, opts.k, opts.maxTokens) }
   })
 
+  // --- Session history (only saved while the setting is on; the renderer decides) ---
+  ipcMain.handle('sessions-save', (_event, session: unknown) => {
+    try {
+      const { saved, deleted } = sessions().save(session)
+      return { success: saved, ...(deleted ? { deleted: true } : {}) }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+  ipcMain.handle('sessions-status', () => ({ encrypted: sessions().encrypted }))
+  ipcMain.handle('sessions-search', (_event, query: string) => ({ sessions: sessions().search(String(query ?? '')) }))
+  ipcMain.handle('sessions-get', (_event, id: string) => ({ session: sessions().get(id) }))
+  ipcMain.handle('sessions-delete', (_event, id: string) => {
+    sessions().delete(id)
+    return { success: true }
+  })
+  ipcMain.handle('sessions-delete-all', () => {
+    sessions().deleteAll()
+    return { success: true }
+  })
+
   // Screenshot capture
   ipcMain.handle('capture-screenshot', async () => {
     return await captureScreenshot()
@@ -867,11 +899,13 @@ function setupIPC() {
       // No traffic lights on the card: they'd cover its toolbar, and a stray
       // click on the red one would quit mid-call
       if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false)
+      mainWindow.setMinimumSize(0, 0) // the card is smaller than the window's minimum
       mainWindow.setBounds(compactBounds(normalBounds, workArea))
     } else if (!enabled && normalBounds) {
       mainWindow.setIgnoreMouseEvents(false)
       if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(true)
       mainWindow.setBounds(normalBounds)
+      mainWindow.setMinimumSize(WINDOW_MIN_SIZE.width, WINDOW_MIN_SIZE.height)
       normalBounds = null
     }
   })
@@ -1130,11 +1164,12 @@ function setupIPC() {
     }
   })
 
-  // Save conversation / transcript to .txt, or meeting notes to .md
+  // Save conversation / transcript to .txt, or meeting notes / a session to .md
   ipcMain.handle('save-conversation', async (_event, payload: {
     content: string
     suggestedName: string
     format?: 'txt' | 'md'
+    title?: string // dialog title
   }) => {
     try {
       const format = payload.format === 'md' ? 'md' : 'txt'
@@ -1142,7 +1177,7 @@ function setupIPC() {
         ? payload.suggestedName
         : `${payload.suggestedName}.${format}`
       const { canceled, filePath: savePath } = await dialog.showSaveDialog({
-        title: format === 'md' ? 'Save notes' : 'Save conversation',
+        title: typeof payload.title === 'string' && payload.title ? payload.title.slice(0, 60) : format === 'md' ? 'Save notes' : 'Save conversation',
         defaultPath: path.join(app.getPath('documents'), name),
         filters: format === 'md'
           ? [{ name: 'Markdown', extensions: ['md'] }]

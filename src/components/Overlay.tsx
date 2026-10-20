@@ -4,8 +4,10 @@ import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { AudioCapture } from './AudioCapture'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
+import { useSessionHistory } from '../hooks/useSessionHistory'
 import type { SendMessageOptions } from '../hooks/useGhostAI'
 import { usageRatio, type ContextUsage } from '../lib/context'
+import { isReasoningActive } from '../lib/ollama'
 import { fillSuggestReplyPrompt, getActivePreset } from '../lib/presets'
 import { buildMeetingNotesRequest, normalizeNotesMarkdown, notesDocument, notesLanguage } from '../lib/notes'
 import { fileStamp, suggestFilename } from '../lib/filename'
@@ -39,6 +41,8 @@ interface OverlayProps {
   onCompact?: () => void
   // Open the documents panel (local retrieval)
   onOpenDocuments?: () => void
+  // Open the session history panel
+  onOpenHistory?: () => void
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -62,6 +66,7 @@ export function Overlay({
   contextUsage = null,
   onCompact,
   onOpenDocuments,
+  onOpenHistory,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -81,9 +86,19 @@ export function Overlay({
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const presetMenuRef = useRef<HTMLDivElement>(null)
   // Transcript context (running summary + recent verbatim), built per request
-  const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected)
+  // Whether the chat model will reason: its thinking needs room in the window
+  const reasoning = isReasoningActive(settings.reasoning, settings.selectedModel, models)
+  const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected, reasoning)
   // Supplies the Suggest reply template and the quick actions (useGhostAI uses its system prompt)
   const activePreset = getActivePreset(settings)
+  // Session history (opt-in): saved only while Settings > Privacy allows it
+  useSessionHistory({
+    enabled: settingsLoaded && settings.saveSessions,
+    messages,
+    transcript: currentTranscript,
+    model: settings.selectedModel,
+    preset: activePreset.name,
+  })
   // Labels for the configured global shortcuts ("Cmd+Shift+S")
   const isMac = isMacPlatform()
   const keys = (action: ShortcutAction) =>
@@ -168,7 +183,7 @@ export function Overlay({
   // Sent without chat history; the reply is tagged so its bubble offers Save .md.
   const handleGenerateNotes = useCallback(() => {
     const language = notesLanguage(settings.whisperModel, settings.transcriptionLanguage)
-    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language, transcriptSpeakers)
+    const request = buildMeetingNotesRequest(getTranscriptContext(), settings.contextLength, language, transcriptSpeakers, reasoning)
     if (!request.context) return
     sendMessage(request.prompt, undefined, {
       context: request.context,
@@ -176,7 +191,7 @@ export function Overlay({
       standalone: true,
       kind: 'notes',
     })
-  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, transcriptSpeakers, sendMessage])
+  }, [getTranscriptContext, settings.contextLength, settings.whisperModel, settings.transcriptionLanguage, transcriptSpeakers, sendMessage, reasoning])
 
   const handleSaveNotes = useCallback(async (markdown: string) => {
     const now = new Date()
@@ -194,33 +209,33 @@ export function Overlay({
   }, [isConnected, settings, activePreset.name])
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
-      {/* Title Bar — pl clears the native macOS traffic-light buttons (top-left) */}
-      <div
-        className="drag-region flex items-center justify-between pl-[78px] pr-3 h-11 border-b border-ghost-border"
-      >
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in">
+      {/* Toolbar (macOS 27 style) — left padding clears the native traffic lights */}
+      <div className="toolbar">
         <div className="flex items-center gap-2 min-w-0">
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? 'bg-ghost-success' : 'bg-ghost-error'} animate-pulse-dot`} />
-          <span className="text-xs font-semibold text-ghost-text">
-            Ghost AI
-          </span>
-          {isConnected && (
-            <span className="text-[10px] text-ghost-text-muted truncate">
-              {settings.selectedModel}
-            </span>
-          )}
+          {/* Window title with the model as subtitle, as in macOS toolbars */}
+          <div className="flex flex-col min-w-0 leading-tight">
+            <span className="text-body font-semibold text-ghost-text">Ghost AI</span>
+            {isConnected && (
+              <span className="text-footnote text-ghost-text-muted truncate" title={settings.selectedModel}>
+                {settings.selectedModel}
+              </span>
+            )}
+          </div>
           {contextUsage && <ContextMeter usage={contextUsage} />}
         </div>
 
-        <div className="flex items-center gap-0.5 no-drag">
+        <div className="flex items-center gap-1 flex-shrink-0 no-drag">
+          <div className="tool-group">
           {/* Compact mode */}
           {onCompact && (
             <button
               onClick={onCompact}
-              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              className="tool-btn"
               title={`Compact mode (${keys('compactMode')})`}
             >
-              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
               </svg>
             </button>
@@ -230,23 +245,38 @@ export function Overlay({
           {onOpenDocuments && (
             <button
               onClick={onOpenDocuments}
-              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              className="tool-btn"
               title="Documents"
             >
-              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
               </svg>
             </button>
           )}
 
+          {/* Session history */}
+          {onOpenHistory && (
+            <button
+              onClick={onOpenHistory}
+              className="tool-btn"
+              title="Session history"
+            >
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+
+          </div>
+          <div className="tool-group">
           {/* Preset switcher */}
           <div className="relative" ref={presetMenuRef}>
             <button
               onClick={() => setShowPresetMenu(prev => !prev)}
-              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              className="tool-btn"
               title={`Change preset (${activePreset.name})`}
             >
-              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
             </button>
@@ -261,7 +291,7 @@ export function Overlay({
                       updateSettings({ activePresetId: preset.id })
                       setShowPresetMenu(false)
                     }}
-                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-callout hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
                       preset.id === activePreset.id ? 'text-ghost-accent' : 'text-ghost-text-muted'
                     }`}
                   >
@@ -277,10 +307,10 @@ export function Overlay({
           <div className="relative" ref={modelMenuRef}>
             <button
               onClick={() => setShowModelMenu(prev => !prev)}
-              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              className="tool-btn"
               title="Change model"
             >
-              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </button>
@@ -288,7 +318,7 @@ export function Overlay({
             {showModelMenu && (
               <div className="absolute right-0 mt-1 w-44 max-h-64 overflow-y-auto popover rounded-lg z-50 py-1">
                 {models.length === 0 && (
-                  <div className="px-3 py-2 text-[10px] text-ghost-text-muted">No models found</div>
+                  <div className="px-3 py-2 text-callout text-ghost-text-muted">No models found</div>
                 )}
                 {models.map(model => (
                   <button
@@ -297,7 +327,7 @@ export function Overlay({
                       updateSettings({ selectedModel: model.name })
                       setShowModelMenu(false)
                     }}
-                    className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-callout hover:bg-ghost-fill-strong transition-colors flex items-center gap-2 ${
                       model.name === settings.selectedModel ? 'text-ghost-accent' : 'text-ghost-text-muted'
                     }`}
                   >
@@ -309,13 +339,15 @@ export function Overlay({
             )}
           </div>
 
+          </div>
+          <div className="tool-group">
           {/* Screenshot full */}
           <button
             onClick={analyzeScreenshot}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+            className="tool-btn"
             title={`Capture full screen (${keys('screenshot')})`}
           >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
@@ -324,27 +356,29 @@ export function Overlay({
           {/* Screenshot crop */}
           <button
             onClick={analyzeScreenshotCrop}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+            className="tool-btn"
             title={`Capture screen region (${keys('cropScreenshot')})`}
           >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3v4M3 7h4m10 0h4M17 3v4M7 17v4M3 17h4m10 0h4m-4-14v14H7V3" />
             </svg>
           </button>
 
+          </div>
+          <div className="tool-group">
           {/* Save conversation */}
           <button
             onClick={handleSaveConversation}
             disabled={messages.length === 0 || isSaving}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors disabled:opacity-30"
+            className="tool-btn"
             title="Save conversation to .txt"
           >
             {isSaving ? (
-              <svg className="w-3 h-3 text-ghost-accent animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="text-ghost-accent animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             ) : (
-              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
               </svg>
             )}
@@ -353,21 +387,23 @@ export function Overlay({
           {/* Clear chat */}
           <button
             onClick={clearChat}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+            className="tool-btn"
             title="Clear chat"
           >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           </button>
 
+          </div>
+          <div className="tool-group">
           {/* Settings */}
           <button
             onClick={onOpenSettings}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+            className="tool-btn"
             title="Settings"
           >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
@@ -376,13 +412,14 @@ export function Overlay({
           {/* Help */}
           <button
             onClick={onOpenHelp}
-            className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+            className="tool-btn"
             title="Help - Shortcuts & buttons"
           >
-            <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
+          </div>
         </div>
       </div>
 
@@ -391,37 +428,37 @@ export function Overlay({
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div className="text-2xl mb-3 opacity-40">👻</div>
-              <p className="text-xs text-ghost-text-muted mb-1">
+              <p className="text-body text-ghost-text-muted mb-1">
                 Ghost AI - Local Anonymous Assistant
               </p>
-              <p className="text-[10px] text-ghost-text-muted opacity-60 mb-3">
+              <p className="text-callout text-ghost-text-muted opacity-60 mb-3">
                 Everything runs locally via Ollama. No data leaves your machine.
               </p>
               {!isConnected && (
-                <div className="bg-ghost-error/20 text-ghost-error rounded-lg px-3 py-2 text-[10px]">
+                <div className="bg-ghost-error/20 text-ghost-error rounded-lg px-3 py-2 text-callout">
                   {connectionError ? (
                     connectionError
                   ) : (
                     <>
                       Ollama not detected. Start Ollama first.
                       <br />
-                      <code className="text-[9px] opacity-80">ollama serve</code>
+                      <code className="text-subhead opacity-80">ollama serve</code>
                     </>
                   )}
                 </div>
               )}
-              <div className="mt-3 space-y-1.5 text-[9px] text-ghost-text-muted opacity-50 w-full max-w-[220px]">
+              <div className="mt-3 space-y-1.5 text-subhead text-ghost-text-muted opacity-50 w-full max-w-[220px]">
                 <div className="flex justify-between">
                   <span>Show/Hide overlay</span>
-                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">{keys('toggleOverlay')}</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-footnote">{keys('toggleOverlay')}</kbd>
                 </div>
                 <div className="flex justify-between">
                   <span>Capture screenshot</span>
-                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">{keys('screenshot')}</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-footnote">{keys('screenshot')}</kbd>
                 </div>
                 <div className="flex justify-between">
                   <span>Focus input</span>
-                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-[8px]">{keys('focusInput')}</kbd>
+                  <kbd className="bg-ghost-fill-strong px-1 py-0.5 rounded font-mono text-footnote">{keys('focusInput')}</kbd>
                 </div>
               </div>
             </div>
@@ -458,10 +495,12 @@ export function Overlay({
               sendMessage(fillSuggestReplyPrompt(activePreset.suggestReplyPrompt, text), undefined, { context: getTranscriptContext() })
             }}
             onSummarize={() => {
-              sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext() })
+              // Summaries come from the transcript alone: earlier summaries in the
+              // chat would only repeat it and fill the context window
+              sendMessage('Summarize the conversation transcript into clear bullet points with the key topics discussed.', undefined, { context: getTranscriptContext(), standalone: true })
             }}
             onSummarizePT={() => {
-              sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext() })
+              sendMessage('Summarize the conversation transcript into a bullet-point list of the key topics, where each topic has a short bold title followed by a brief explanation of what was said about it. Write everything in Brazilian Portuguese (pt-BR), regardless of the original language. Provide ONLY the list, nothing else.', undefined, { context: getTranscriptContext(), standalone: true })
             }}
             onNotes={handleGenerateNotes}
             onTranscriptChange={handleTranscriptChange}
@@ -517,7 +556,7 @@ function QuickAction({ label, onClick }: { label: string; onClick: () => void })
   return (
     <button
       onClick={onClick}
-      className="flex-shrink-0 px-2 py-0.5 rounded-full text-[9px] bg-ghost-accent/20 text-ghost-accent hover:bg-ghost-accent/30 transition-colors no-drag"
+      className="flex-shrink-0 px-2 py-0.5 rounded-full text-subhead bg-ghost-accent/20 text-ghost-accent hover:bg-ghost-accent/30 transition-colors no-drag"
     >
       {label}
     </button>

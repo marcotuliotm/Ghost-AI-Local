@@ -1,6 +1,6 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { MAX_QUEUED_REQUESTS, useGhostAI } from '../hooks/useGhostAI'
+import { MAX_QUEUED_REQUESTS, MESSAGE_NO_ROOM, NOTICE_ANSWERED_WITHOUT_REASONING, NOTICE_CUT_OFF, useGhostAI } from '../hooks/useGhostAI'
 import { getActivePreset } from '../lib/presets'
 
 describe('useGhostAI', () => {
@@ -743,7 +743,9 @@ describe('useGhostAI', () => {
       await act(async () => { await result.current.sendMessage('Hello', undefined, { context: 'A: hi' }) })
       const usage = result.current.contextUsage!
       expect(usage.contextLength).toBe(8192)
-      expect(usage.budget).toBe(6144)
+      // Reasoning on (default) with a model of unknown capabilities: half the
+      // window stays free for the thinking
+      expect(usage.budget).toBe(4096)
       expect(usage.promptTokens).toBeGreaterThan(0)
       expect(usage.droppedMessages).toBe(0)
     })
@@ -772,7 +774,7 @@ describe('useGhostAI', () => {
       await act(async () => { await result.current.sendMessage('Why am I a fit?', undefined, { context: 'A: tell me about yourself' }) })
 
       expect(window.ghostAPI.docsSearch).toHaveBeenCalledWith(expect.objectContaining({
-        query: expect.stringContaining('Why am I a fit?'), embeddingModel: 'nomic-embed-text', maxTokens: 1536,
+        query: expect.stringContaining('Why am I a fit?'), embeddingModel: 'nomic-embed-text', maxTokens: 1024,
       }))
       expect((window.ghostAPI.docsSearch as any).mock.calls[0][0].query).toContain('A: tell me about yourself')
       const sent = (window.ghostAPI.ollamaChatStream as any).mock.calls[0][0].messages
@@ -814,7 +816,7 @@ describe('useGhostAI', () => {
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.settingsLoaded).toBe(true))
       await act(async () => { await result.current.sendMessage('Hello') })
-      // 8192 window → 6144 budget → 25% = 1536 tokens ≈ one 1000-token excerpt
+      // 8192 window, reasoning → 4096 budget → 25% = 1024 tokens ≈ one 1000-token excerpt
       expect(result.current.messages[1].sources).toEqual(['d0.md'])
     })
 
@@ -822,6 +824,95 @@ describe('useGhostAI', () => {
       window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: true, models: [], embeddingModels: ['nomic-embed-text:latest'] })
       const { result } = renderHook(() => useGhostAI())
       await waitFor(() => expect(result.current.embeddingModels).toEqual(['nomic-embed-text:latest']))
+    })
+  })
+
+  describe('context window and reasoning', () => {
+    const thinkingModel = { name: 'qwen3.5:latest', size: 1, digest: 'a', modified_at: '', capabilities: ['completion', 'thinking'] }
+    const plainModel = { name: 'gemma3:4b', size: 1, digest: 'b', modified_at: '', capabilities: ['completion', 'vision'] }
+
+    async function withModel(model: typeof thinkingModel, settings: Record<string, unknown> = {}) {
+      window.ghostAPI.ollamaStatus = vi.fn().mockResolvedValue({ connected: true, models: [model] })
+      window.ghostAPI.settingsLoad = vi.fn().mockResolvedValue({ settings: { selectedModel: model.name, ...settings } })
+      const hook = renderHook(() => useGhostAI())
+      await waitFor(() => expect(hook.result.current.models).toHaveLength(1))
+      return hook
+    }
+
+    it('should leave room for reasoning only when the model reasons', async () => {
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('a') })
+      expect(result.current.contextUsage!.budget).toBe(4096)
+
+      const plain = await withModel(plainModel)
+      await act(async () => { await plain.result.current.sendMessage('a') })
+      expect(plain.result.current.contextUsage!.budget).toBe(6144)
+
+      const off = await withModel(thinkingModel, { reasoning: false })
+      await act(async () => { await off.result.current.sendMessage('a') })
+      expect(off.result.current.contextUsage!.budget).toBe(6144)
+    })
+
+    it('should answer without reasoning when thinking used up the window', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn()
+        .mockResolvedValueOnce({ success: true, content: '', thinking: 'long reasoning...', doneReason: 'length' })
+        .mockResolvedValueOnce({ success: true, content: '- Budget approved', thinking: '', doneReason: 'stop' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+
+      const calls = (window.ghostAPI.ollamaChatStream as any).mock.calls
+      expect(calls).toHaveLength(2)
+      expect(calls[0][0]).not.toHaveProperty('think')
+      expect(calls[1][0].think).toBe(false)
+      expect(calls[1][0].requestId).not.toBe(calls[0][0].requestId)
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({
+        content: '- Budget approved',
+        thinking: 'long reasoning...',
+        notice: NOTICE_ANSWERED_WITHOUT_REASONING,
+        isStreaming: false,
+      }))
+    })
+
+    it('should drop the interim notice when the retry fails', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn()
+        .mockResolvedValueOnce({ success: true, content: '', thinking: 'long reasoning...', doneReason: 'length' })
+        .mockResolvedValueOnce({ success: false, error: 'model runner has unexpectedly stopped' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(result.current.messages[1].content).toContain('model runner has unexpectedly stopped')
+      expect(result.current.messages[1].notice).toBeUndefined()
+    })
+
+    it('should explain an empty reply when even the retry has no room', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: true, content: '', thinking: '', doneReason: 'length' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(2)
+      expect(result.current.messages[1].content).toBe(MESSAGE_NO_ROOM)
+    })
+
+    it('should mark an answer cut off by the window without retrying', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: true, content: '- First point\n- Sec', doneReason: 'length' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1)
+      expect(result.current.messages[1]).toEqual(expect.objectContaining({ content: '- First point\n- Sec', notice: NOTICE_CUT_OFF }))
+    })
+
+    it('should not retry when reasoning is off', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: true, content: '', doneReason: 'length' })
+      const { result } = await withModel(thinkingModel, { reasoning: false })
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1)
+      expect(result.current.messages[1].content).toBe(MESSAGE_NO_ROOM)
+    })
+
+    it('should not retry a reply the user stopped', async () => {
+      window.ghostAPI.ollamaChatStream = vi.fn().mockResolvedValue({ success: true, aborted: true, content: '', thinking: 'x' })
+      const { result } = await withModel(thinkingModel)
+      await act(async () => { await result.current.sendMessage('Summarize') })
+      expect(window.ghostAPI.ollamaChatStream).toHaveBeenCalledTimes(1)
+      expect(result.current.messages[1].stopped).toBe(true)
     })
   })
 })

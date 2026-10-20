@@ -36,7 +36,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
       <button
         type="button"
         onClick={handleCopy}
-        className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill text-ghost-text-muted opacity-0 group-hover/code:opacity-100 hover:text-ghost-text transition-opacity"
+        className="absolute top-1 right-1 px-1.5 py-0.5 rounded-full text-footnote bg-ghost-fill text-ghost-text-muted opacity-0 group-hover/code:opacity-100 hover:text-ghost-text transition-opacity"
         title="Copy code"
       >
         {copied ? 'Copied!' : 'Copy'}

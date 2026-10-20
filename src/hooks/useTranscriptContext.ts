@@ -19,7 +19,9 @@ const RETRY_DELAY_MS = 30_000
  * folded into a running summary in the background (via ollamaChat) and only the
  * recent part stays verbatim. `getContext()` returns what to send right now.
  */
-export function useTranscriptContext(transcript: string, settings: Settings, isConnected: boolean) {
+// `reasoning`: the chat model will reason, so the prompt budget (and the
+// transcript's share of it) is smaller to leave room for the thinking.
+export function useTranscriptContext(transcript: string, settings: Settings, isConnected: boolean, reasoning = false) {
   // `summary` covers exactly `prefix`, the start of the transcript. If the
   // transcript no longer starts with it (Clear / new recording) both are dropped.
   const [{ summary, prefix }, setSummaryState] = useState({ summary: '', prefix: '' })
@@ -29,7 +31,7 @@ export function useTranscriptContext(transcript: string, settings: Settings, isC
   // Bumped on reset so a summary that finishes after a Clear is discarded.
   const generationRef = useRef(0)
 
-  const budget = promptBudget(settings.contextLength)
+  const budget = promptBudget(settings.contextLength, reasoning)
 
   // Reset when the transcript stops extending the summarized prefix.
   useEffect(() => {

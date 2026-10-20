@@ -8,7 +8,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Electron 42.3.2 (see audio-loopback note below) |
+| Framework | Electron 42.11.16 (see audio-loopback note below) |
 | Frontend | React 18 + TypeScript 5 |
 | Bundler | Vite 6 + vite-plugin-electron |
 | Styling | TailwindCSS 3 |
@@ -26,9 +26,10 @@ Ghost-AI-Local/
 ├── electron/
 │   ├── main.ts          # Main process: window, tray, shortcuts, IPC, Whisper, settings store
 │   ├── documents.ts     # DocumentStore: read/extract (PDF via unpdf), chunk, embed, index on disk, search
+│   ├── sessions.ts      # SessionStore: one JSON file per saved session in userData/sessions, search, delete
 │   └── preload.ts       # contextBridge exposing ghostAPI to renderer
 ├── src/
-│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding | documents)
+│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding | documents | history)
 │   ├── main.tsx          # React entry point
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
@@ -36,6 +37,7 @@ Ghost-AI-Local/
 │   │   ├── AudioCapture.tsx  # Audio UI: source/Speakers/Questions/Auto controls, transcript (renamable speakers), action buttons; wires the audio hooks
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
 │   │   ├── DocumentsPanel.tsx # Documents for retrieval: add / on-off / remove, semantic-search status
+│   │   ├── HistoryPanel.tsx  # Saved sessions: Save sessions toggle, search, open (transcript + chat), Export .md, delete
 │   │   ├── CompactView.tsx   # Compact mode card: latest suggestion, click-through, drag/expand toolbar
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
@@ -50,9 +52,11 @@ Ghost-AI-Local/
 │   │   ├── useTranscriptionQueue.ts # Serial Whisper queue (spoken order, drops oldest past 30)
 │   │   ├── useDiarization.ts # Speakers mode: embedding model + clustering → You / A / B / C / Other
 │   │   ├── useAutoSend.ts    # Auto timer: sends only the new text, retries when declined
+│   │   ├── useSessionHistory.ts # Saves the current session (debounced, after streaming) while saveSessions is on
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking, model/language, reload detection
 │   ├── lib/
 │   │   ├── compact.ts        # Compact window bounds (top-right anchored, kept in the work area; also used by electron/main.ts)
+│   │   ├── window.ts         # Main window size/min size, toolbar height, traffic-light position, default bounds (also used by electron/main.ts)
 │   │   ├── csp.ts            # Renderer Content-Security-Policy (injected by vite.config.mts)
 │   │   ├── audio.ts          # AudioWorklet source/loader, capture node, 16 kHz resampling, silence/hallucination filters
 │   │   ├── context.ts        # Token estimates, history budget, transcript delta/tail, compaction planning
@@ -67,6 +71,7 @@ Ghost-AI-Local/
 │   │   ├── questions.ts      # isQuestion heuristic (EN/PT/ES) for Questions mode
 │   │   ├── screenshot.ts     # Native (Retina) capture size, downscale for full screenshots
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
+│   │   ├── sessions.ts       # Session history: types, sanitizing, title, accent-insensitive search + snippets, Markdown export (also used by electron/)
 │   │   ├── settings.ts       # mergeSettings(): stored settings over DEFAULT_SETTINGS
 │   │   ├── shortcuts.ts      # Default/validated global shortcuts, key-event recording, labels (also used by electron/main.ts)
 │   │   ├── transcript.ts     # TranscriptSegment, merging, formatting with speaker names, echo retraction
@@ -129,6 +134,10 @@ npm run dist:win   # Build + package Windows NSIS
 | `ollama-chat-stream` | renderer->main | invoke | Streaming chat `{ requestId, ..., think? }`; resolves `{ success, content, thinking, aborted?, error? }` when the stream ends |
 | `ollama-abort` | renderer->main | invoke | Stop the streaming request with that `requestId` (Stop button / Esc) |
 | `ollama-status` | renderer->main | invoke | Connection + local chat models from one `/api/tags` (3s timeout, polled every 10s); cloud models filtered out, embedding-only models returned separately as `embeddingModels`, `error` for a non-local URL |
+| `sessions-save` | renderer->main | invoke | Create/replace a session file (validated, UUID ids only); sent only while `saveSessions` is on |
+| `sessions-status` | renderer->main | invoke | `{ encrypted }`: whether `safeStorage` encryption is available (without it nothing is saved) |
+| `sessions-search` | renderer->main | invoke | Session summaries, newest first; a query keeps those containing all its words (with a snippet) |
+| `sessions-get` / `sessions-delete` / `sessions-delete-all` | renderer->main | invoke | Open one session / delete one / delete all |
 | `docs-list` | renderer->main | invoke | The user's documents (metadata) |
 | `docs-add` | renderer->main | invoke | File picker (.pdf/.txt/.md) → extract, chunk, embed when an embedding model is installed; returns `{ added, errors }` |
 | `docs-remove` / `docs-set-enabled` | renderer->main | invoke | Remove a document / turn it on or off for retrieval |
@@ -142,7 +151,7 @@ npm run dist:win   # Build + package Windows NSIS
 | `embed-speaker` | renderer->main | invoke | Return normalized speaker embedding for Float32Array audio |
 | `embed-status` | renderer->main | invoke | Get speaker-embedding model status |
 | `embed-progress` | main->renderer | send | Speaker model download progress |
-| `save-conversation` | renderer->main | invoke | Show save dialog + write the file; `format: 'txt'` (default) or `'md'` picks the filter/extension |
+| `save-conversation` | renderer->main | invoke | Show save dialog + write the file; `format: 'txt'` (default) or `'md'` picks the filter/extension; optional dialog `title` |
 | `settings-load` | renderer->main | invoke | Read stored settings (`{ settings: object \| null }`, raw — the renderer merges) |
 | `settings-save` | renderer->main | invoke | Write the settings object to `userData/settings.json` |
 | `clipboard-write` | renderer->main | invoke | Write text to native clipboard (bypasses web permission handler) |
@@ -175,7 +184,7 @@ interface Settings {
   ollamaBaseUrl: string        // default: 'http://localhost:11434'
   selectedModel: string        // default: 'gemma4:latest'
   opacity: number              // window opacity 0-1 (default 0.9)
-  fontSize: number             // UI font size in px (default 12)
+  fontSize: number             // body text size in px, scales the whole UI (default 13, kept within 11-17)
   transcriptionInterval: number // max speech-segment length in seconds 3-30 (default 10), live
   speakerThreshold: number     // cosine-similarity threshold for speaker separation 0.5-0.95 (default 0.85)
   contextLength: number        // Ollama num_ctx sent with every chat request (default 8192)
@@ -188,6 +197,7 @@ interface Settings {
   hideFromScreenShare: boolean // default true: setContentProtection on the overlay
   onboardingCompleted: boolean // first-run setup done/skipped; true for anyone with older saved settings
   embeddingModel: string       // Ollama embedding model for documents (default 'nomic-embed-text'; keyword search when not installed)
+  saveSessions: boolean        // default false: keep transcript + chat + notes in session history (userData/sessions)
 }
 
 interface Preset {
@@ -209,6 +219,7 @@ interface ChatMessage {
   stopped?: boolean            // generation stopped by the user (partial reply kept)
   kind?: 'notes'               // meeting-notes reply (bubble offers Save .md)
   sources?: string[]           // documents whose excerpts went with the request ("From: …" under the reply)
+  notice?: string              // why a reply is incomplete / answered without reasoning (shown under it)
 }
 ```
 
@@ -233,7 +244,7 @@ A "Questions" toggle (next to Auto, when the source includes system audio) answe
 Without headphones the mic hears the call from the speakers (Chromium's echo cancellation only covers audio this page plays), so the same words would appear as the other side *and* as "You". In Both mode `EchoFilter` (`src/lib/echo.ts`) remembers recent texts per channel for 8s (by when the segment closed): a mic text whose words overlap ≥60% with a recent system text (overlap coefficient, accents/punctuation ignored, ≥3 words) is dropped; if the mic text was transcribed first, it is retracted from the transcript when the matching system text arrives (`removeTrailingText`). Different sentences on the two channels are kept.
 
 ### Context management (num_ctx + token budget)
-Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context, systemPrompt?, standalone?, kind? })` builds: system prompt (the active preset's, unless overridden) → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`). `standalone: true` leaves the chat history out (meeting notes).
+Every `ollama-chat` / `ollama-chat-stream` request sends `options: { num_ctx: settings.contextLength }` — without it Ollama silently truncates to its small default window. `src/lib/context.ts` estimates tokens (~4 chars/token) and `promptBudget()` reserves room for the reply (25% of the window, max 2048). `useGhostAI.sendMessage(content, screenshot?, { context, systemPrompt?, standalone?, kind? })` builds (with the reasoning-aware budget, see "Reasoning"): system prompt (the active preset's, unless overridden) → transcript system message → chat history trimmed newest-first to the remaining budget (`fitHistoryToBudget`, replacing the old fixed `slice(-20)`). `standalone: true` leaves the chat history out (meeting notes).
 
 The **live transcript is never embedded in user messages or stored in history**. `Overlay` passes it as `context` on each request (typed questions, quick actions, Suggest reply, Auto, Summarize, Summary PT). `useTranscriptContext` keeps it bounded: once the unsummarized transcript passes ~40% of the prompt budget, the older part is folded into a running summary in the background via `ollamaChat` (at most half the budget per pass; 30s backoff on failure) and only the recent ~15% stays verbatim. Clearing/restarting the transcript drops the summary. If summarization lags, the verbatim part is still capped (`transcriptTail`).
 
@@ -245,6 +256,8 @@ Every streaming request gets a `requestId` (`useGhostAI.startRequest`). The main
 ### Reasoning (thinking models)
 `settings.reasoning` (default **on**) leaves `think` out of chat requests, so thinking models (capability `thinking` in `/api/tags`, e.g. qwen3) reason and the reasoning streams separately into `ChatMessage.thinking`, shown live in a collapsible block above the reply. Off sends `think: false`. Never send `think: true`: Ollama rejects it for models without the capability. Background calls (file names, progressive summary) always send `think: false` — reasoning there only delays them and blocks Ollama for the chat.
 
+**Reasoning needs room in the window.** The thinking is generated into the same `num_ctx` as the prompt, and for qwen3.5 Ollama disables KV-cache shifting, so generation simply *stops* at `num_ctx` (`done_reason: "length"`). Measured: a transcript summary took ~3,200 reasoning tokens; with a 5,000-token prompt (history full of earlier summaries) in an 8,192 window the reply came back **empty**. So when `isReasoningActive` (setting on and the model has the `thinking` capability — unknown capabilities count as reasoning) `promptBudget(contextLength, true)` reserves up to half the window (max `REASONING_REPLY_RESERVE` = 4096) instead of a quarter (max 2048); `useTranscriptContext` and the notes request use the same budget. If a reply still ends with `done_reason: "length"` and no content, `useGhostAI` asks again with `think: false` (keeping the reasoning shown) and the reply carries a `notice`; a partial answer cut by the window gets a "Cut off" notice. Summarize / Summary PT are `standalone` (transcript only), so repeated summaries don't pile up in their own prompts.
+
 ### Markdown replies
 Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm` + `rehype-highlight`; styles in `globals.css` under `.response-content`). For the zero-network rule nothing in a reply may load or navigate: raw HTML stays disabled (react-markdown default — do not add `rehype-raw`), links render as text with the URL as a tooltip, and images become `[image: alt]`. Code blocks get a copy button. User messages stay plain text.
 
@@ -253,8 +266,17 @@ The user adds files in the Documents panel (title-bar paperclip). `electron/docu
 
 On every non-standalone request `useGhostAI` calls `docs-search` with the message plus the recent transcript tail and the documents' token share. **When all enabled documents fit in that share** (a CV plus a job description, typically) they are sent in full, in document order — a conversational question ("why are you a good fit?") often shares no words with a CV, so ranking would drop exactly what's needed. Otherwise excerpts are ranked (`rankChunks`), hybrid: BM25 over stopword-filtered, accent-free, plural-stripped tokens always; blended 70/30 with cosine similarity when the query and the document were embedded with the same model; near-duplicates of a better-ranked excerpt (word overlap ≥ 85%) are skipped so repeated text can't crowd out the rest. The top excerpts that fit `DOCUMENTS_SHARE` (25%) of the prompt budget go in as a system message (labeled by file name, "don't invent beyond them") before the chat history is fitted, and the reply records `sources`. Meeting notes (standalone) skip documents. A failed search never blocks the reply. Documents can be turned off without being removed.
 
+### Session history (opt-in)
+`settings.saveSessions` is **off by default**: nothing is written until the user turns on "Save sessions" (History panel, clock icon in the title bar) or Settings > Privacy > "Save session history". While on, `useSessionHistory` (called by `Overlay`) saves the current session — formatted transcript (speaker names applied), chat messages, model and preset name — through `sessions-save`, 1s after the last change and never while a reply is streaming. Messages are stored by `toSessionMessages` (`src/lib/sessions.ts`) without screenshots (`hadScreenshot: true` instead) or reasoning. A session gets its UUID on the first save; clearing the chat or the transcript starts a new one, so the saved session keeps what was cleared. Deleting the session that is still open (one, or Delete all) doesn't bring it back: `SessionStore` remembers ids deleted this run and refuses to save them (`{ deleted: true }`), and `useSessionHistory` then starts a new session that leaves out what the deleted one held (its last saved messages and transcript prefix) — only newer content is saved. `electron/sessions.ts` (`SessionStore`) writes one file per session to `userData/sessions/<uuid>.json` (mode 0600 in a 0700 folder, atomic, `sanitizeSession` on save and load — it rebuilds each message from the allowed fields, so a screenshot or reasoning can't reach the disk whatever the renderer sends; ids must be UUIDs so they can't name other paths) and keeps them in memory for search. Search is case- and accent-insensitive, matches all words across title, transcript and messages, and returns a snippet cut from the original text. The History panel opens a session read-only (transcript + messages via `MessageBubble`, notes keep Save .md), exports it as Markdown (`sessionMarkdown`), deletes one, or deletes all (second click confirms). Turning saving off doesn't delete anything. **Encrypted:** each file is `{ version: 1, encrypted: <base64> }`, the session JSON encrypted with Electron's `safeStorage` (key "ghost-ai Safe Storage" in the macOS Keychain; DPAPI / secret store elsewhere). The cipher is created lazily on the first `sessions-*` call (after app ready); when `safeStorage.isEncryptionAvailable()` is false nothing is saved (`sessions-save` fails, `sessions-status` reports `encrypted: false` and the History panel warns). Plain-JSON files from before encryption are read and re-written encrypted; files that can't be decrypted (key gone) are skipped, not deleted — Delete all removes them too. The old `use-mock-keychain` switch was removed for this: with it the key was a fixed constant. Side effect: macOS may ask once for Keychain access to "ghost-ai Safe Storage" (Always Allow) — again after an Electron upgrade or on the first run of a packaged build, since the item's access list is tied to the binary's signature. The `safeStorage` calls are synchronous, so the main process waits while that prompt is open.
+
+### macOS 27 look (window, toolbar, type scale)
+- **Window**: 560×760 by default at the top-right of the primary work area (`defaultWindowBounds`, shrunk on small screens), min 460×480. Corners and the window border come from macOS (`roundedCorners`); the page draws none. The surface (`.glass`) is the native `under-window` vibrancy with a light/dark tint (`--tint`, `--tint-alpha`) so text stays legible, as macOS 27's more diffused glass.
+- **Toolbar** (`.toolbar` in `globals.css`): 52pt unified toolbar, traffic lights centered in it (`TRAFFIC_LIGHT_POSITION`), 88px left inset. Every panel header uses it. In the Overlay: title "Ghost AI" with the model as subtitle, the context meter, then icon buttons (`.tool-btn`, 26pt, 15pt glyphs) grouped in glass capsules (`.tool-group`): view (compact, documents, history) · preset/model · capture · save/clear · settings/help. The 560pt width is what fits all eleven at this size — don't add a toolbar button without making room.
+- **Type scale** (Tailwind `fontSize`, rem-based): `text-footnote` 10pt, `text-subhead` 11pt, `text-callout` 12pt, `text-body` 13pt, `text-title3` 15pt at the default `fontSize` 13. `html` font-size is `settings.fontSize`, so the Font size setting scales the whole UI; `mergeSettings` keeps it within 11–17 (`FONT_SIZE_MIN/MAX`). Don't use fixed `text-[Npx]` sizes (they ignore the setting) or anything below `text-footnote`. Labels are sentence case (no uppercase tracking).
+- **Shapes**: push buttons, segmented controls, toggles and the chat field are capsules (`rounded-full`); cards/bubbles `rounded-xl`, code blocks `rounded-lg`. Settings sections are grouped inset boxes like System Settings.
+
 ### Compact mode
-A small card (`CompactView`, 360×160) showing only the latest assistant reply (Markdown, following a streaming reply; the reasoning tail while thinking). `App` switches to the `compact` view from the title-bar button, the `compactMode` shortcut (`toggle-compact` from main) or the tray; an effect calls `set-compact-mode`, which saves the window bounds and applies `compactBounds` (top-right corner of the window, clamped to that display's work area) and hides the macOS traffic lights (they'd cover the card's toolbar, and the red one would quit mid-call), restoring both on exit. The card is click-through: it calls `setIgnoreMouse(true)` (forwarded, so mouse movement still reaches the page) and its toolbar (drag handle + expand) switches the mouse back on while hovered. The Overlay stays mounted underneath, so recording, Auto and Questions keep running.
+A small card (`CompactView`, 400×180) showing only the latest assistant reply (Markdown, following a streaming reply; the reasoning tail while thinking). `App` switches to the `compact` view from the title-bar button, the `compactMode` shortcut (`toggle-compact` from main) or the tray; an effect calls `set-compact-mode`, which saves the window bounds and applies `compactBounds` (top-right corner of the window, clamped to that display's work area) and hides the macOS traffic lights (they'd cover the card's toolbar, and the red one would quit mid-call), restoring both on exit. The window's minimum size is lifted while compact (the card is smaller than it) and restored on exit. The card is click-through: it calls `setIgnoreMouse(true)` (forwarded, so mouse movement still reaches the page) and its toolbar (drag handle + expand) switches the mouse back on while hovered. The Overlay stays mounted underneath, so recording, Auto and Questions keep running.
 
 ### First-run setup (onboarding)
 `Onboarding.tsx` opens when `settings.onboardingCompleted` is false — new users only: `mergeSettings` sets it to true for settings saved before it existed. Steps come from `setupSteps` (`src/lib/onboarding.ts`): Ollama running, a local model, microphone (optional), Screen Recording (optional — needed for system audio and screenshots) and the Whisper model. Finish is enabled once the required ones are done; Skip is always available; Help has "Run setup again". Permissions are polled every 2s (they change in System Settings); the mic uses `request-mic-permission`, Screen Recording has no prompt API so the step opens its privacy pane (`open-privacy-settings`, fixed URLs). The Whisper step only selects the model and shows progress — the hidden Overlay's `AudioCapture` does the loading. Ollama models are never pulled by the app (that would reach ollama.com): the step shows `ollama pull …` to copy.
@@ -405,7 +427,7 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **477 tests** across 38 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **526 tests** across 43 test files under `src/__tests__/`.
 
 ### Running tests
 
@@ -433,6 +455,7 @@ npm run test:watch   # Watch mode
 - The overlay is hidden from screen sharing by default (`setContentProtection`)
 - Settings (incl. prompts) are stored only locally in `userData/settings.json`; `whisper-load` only accepts model ids from `WHISPER_MODELS`
 - Documents and their index stay in `userData/documents/`; embeddings come only from the local Ollama
+- Session history is opt-in (`saveSessions` default false), stays in `userData/sessions/` encrypted with `safeStorage`, and never stores screenshots
 - **Ollama must be local**: `isLocalOllamaUrl` (`src/lib/ollama.ts`) accepts only `localhost`/`*.localhost`, `127.0.0.0/8` and `::1` over http(s). The main process checks it on every Ollama request (`blockedOllamaRequest`), Settings won't save another URL, and `mergeSettings` resets a stored one. **Cloud models** (`remote_host` in `/api/tags`, or a `-cloud`/`:cloud` name) are proxied by the local Ollama to ollama.com, so they are hidden from the model list and refused by the main process
 - Permission handler restricted to media/microphone/screen only
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false` (sandbox disabled only because Whisper needs main-process Node access)

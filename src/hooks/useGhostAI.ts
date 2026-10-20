@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { ChatMessage, OllamaMessage, OllamaModel, Settings, StreamResult } from '../types'
 import { estimateMessageTokens, fitHistoryToBudget, promptBudget, transcriptSystemMessage, transcriptTail, type ContextUsage } from '../lib/context'
 import { DEFAULT_EMBEDDING_MODEL, DOCUMENTS_SHARE, documentsSystemMessage, fitChunks, uniqueSources } from '../lib/rag'
+import { isReasoningActive } from '../lib/ollama'
 import { DEFAULT_PRESET_ID, defaultPresets, getActivePreset } from '../lib/presets'
 import { mergeSettings } from '../lib/settings'
 import { DEFAULT_TRANSCRIPTION_LANGUAGE, DEFAULT_WHISPER_MODEL } from '../lib/whisper'
@@ -24,7 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ollamaBaseUrl: 'http://localhost:11434',
   selectedModel: 'gemma4:latest',
   opacity: 0.9,
-  fontSize: 12,
+  fontSize: 13, // body text (px); the whole UI scales with it
   transcriptionInterval: 10,
   speakerThreshold: 0.85,
   contextLength: 8192,
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hideFromScreenShare: true,
   onboardingCompleted: false,
   embeddingModel: DEFAULT_EMBEDDING_MODEL,
+  saveSessions: false, // session history is opt-in
 }
 
 // Requests made while a reply is streaming wait here (screenshot shortcut,
@@ -56,6 +58,14 @@ interface ActiveRequest {
   content: string
   thinking: string
 }
+
+// Shown on replies cut short by the context window (Ollama done_reason "length")
+export const NOTICE_ANSWERED_WITHOUT_REASONING =
+  'Answered without reasoning: the context window filled up while the model was thinking. Clear the chat or use a larger context window to keep reasoning.'
+export const NOTICE_CUT_OFF =
+  'Cut off: the context window is full. Clear the chat or use a larger context window in Settings.'
+export const MESSAGE_NO_ROOM =
+  'The model ran out of context before it could answer. Clear the chat, or use a larger context window in Settings.'
 
 const CONNECTION_ERROR = /failed to fetch|fetch failed|econnrefused|connection refused|enotfound|network|timed out|timeout|not loaded/i
 
@@ -78,6 +88,9 @@ export function useGhostAI() {
   // Shortcuts the main process could not register (taken by another app)
   const [shortcutErrors, setShortcutErrors] = useState<ShortcutAction[]>([])
   const activeRef = useRef<ActiveRequest | null>(null)
+  // Read at request time (capabilities decide whether the model reasons)
+  const modelsRef = useRef<OllamaModel[]>([])
+  modelsRef.current = models
   const messagesRef = useRef<ChatMessage[]>([])
   // Read at request time, so queued requests use the settings of that moment
   const settingsRef = useRef(settings)
@@ -199,9 +212,12 @@ export function useGhostAI() {
     const transcriptMsg = transcriptSystemMessage(options?.context ?? '')
     if (transcriptMsg) systemMessages.push(transcriptMsg)
 
+    // A reasoning model needs room in the window for its thinking as well
+    const reasoning = isReasoningActive(current.reasoning, current.selectedModel, modelsRef.current)
+    const budget = promptBudget(current.contextLength, reasoning)
+
     // Excerpts from the user's documents relevant to this request (none when
     // no document is enabled). Meeting notes (standalone) stick to the transcript.
-    const budget = promptBudget(current.contextLength)
     let sources: string[] = []
     if (!options?.standalone) {
       try {
@@ -248,27 +264,46 @@ export function useGhostAI() {
       droppedMessages: history.length - fittedHistory.length,
     })
 
-    let result: StreamResult
-    try {
-      result = await window.ghostAPI.ollamaChatStream({
-        requestId: active.requestId,
-        model: current.selectedModel,
-        messages: ollamaMessages,
-        baseUrl: current.ollamaBaseUrl,
-        options: { num_ctx: current.contextLength },
-        ...(current.reasoning ? {} : { think: false }),
-      })
-    } catch (err: any) {
-      result = { success: false, error: err?.message || String(err) }
+    const stream = async (think: boolean): Promise<StreamResult> => {
+      try {
+        return await window.ghostAPI.ollamaChatStream({
+          requestId: active.requestId,
+          model: current.selectedModel,
+          messages: ollamaMessages,
+          baseUrl: current.ollamaBaseUrl,
+          options: { num_ctx: current.contextLength },
+          ...(think ? {} : { think: false }),
+        })
+      } catch (err: any) {
+        return { success: false, error: err?.message || String(err) }
+      }
+    }
+
+    let result = await stream(current.reasoning)
+    let notice: string | undefined
+    const ranOut = (r: StreamResult) => r.success && !r.aborted && r.doneReason === 'length'
+    // The window filled up while the model was still thinking, before any
+    // answer: ask again without reasoning (keeping the reasoning shown so far)
+    // instead of leaving an empty reply.
+    if (ranOut(result) && current.reasoning && !(result.content ?? '').trim() && activeRef.current === active) {
+      active.requestId = crypto.randomUUID()
+      active.content = ''
+      updateMessage(active.assistantId, { notice: 'Context window full while reasoning — answering without reasoning...' })
+      const firstThinking = result.thinking ?? active.thinking
+      result = await stream(false)
+      result = { ...result, thinking: firstThinking }
+      notice = NOTICE_ANSWERED_WITHOUT_REASONING
     }
 
     const text = result.content ?? active.content
     const thinking = (result.thinking ?? active.thinking) || undefined
     if (result.success) {
+      const full = ranOut(result)
       updateMessage(active.assistantId, {
-        content: text,
+        content: full && !text.trim() ? MESSAGE_NO_ROOM : text,
         thinking,
         isStreaming: false,
+        notice: full && text.trim() ? NOTICE_CUT_OFF : notice,
         ...(result.aborted ? { stopped: true } : {}),
       })
     } else {
@@ -283,6 +318,7 @@ export function useGhostAI() {
         content: text ? `${text}\n\n${message}` : message,
         thinking,
         isStreaming: false,
+        notice: undefined, // drop the interim retry notice
       })
     }
     if (activeRef.current === active) activeRef.current = null

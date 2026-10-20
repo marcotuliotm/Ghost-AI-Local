@@ -333,7 +333,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         <div className="space-y-1 animate-fade-in">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-ghost-accent animate-pulse" />
-            <span className="text-[9px] text-ghost-text-muted">{progressMessage}</span>
+            <span className="text-subhead text-ghost-text-muted">{progressMessage}</span>
           </div>
           <div className="w-full bg-ghost-fill rounded-full h-1 overflow-hidden">
             {progress > 0 ? (
@@ -351,8 +351,8 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
       {/* Whisper error */}
       {whisperStatus === 'error' && (
         <div className="flex items-center gap-2">
-          <span className="text-[9px] text-ghost-error">Whisper: {whisperError}</span>
-          <button onClick={loadModel} className="text-[9px] text-ghost-accent hover:underline">
+          <span className="text-subhead text-ghost-error">Whisper: {whisperError}</span>
+          <button onClick={loadModel} className="text-subhead text-ghost-accent hover:underline">
             Retry
           </button>
         </div>
@@ -360,7 +360,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
 
       {/* Model changed in Settings while recording */}
       {needsReload && isCapturing && (
-        <div className="text-[9px] text-ghost-warning">
+        <div className="text-subhead text-ghost-warning">
           The new Whisper model will load when you stop recording.
         </div>
       )}
@@ -370,7 +370,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         <div className="space-y-1 animate-fade-in">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-ghost-accent animate-pulse" />
-            <span className="text-[9px] text-ghost-text-muted">Loading speaker model... {embedProgress > 0 ? `${embedProgress}%` : ''}</span>
+            <span className="text-subhead text-ghost-text-muted">Loading speaker model... {embedProgress > 0 ? `${embedProgress}%` : ''}</span>
           </div>
           <div className="w-full bg-ghost-fill rounded-full h-1 overflow-hidden">
             {embedProgress > 0 ? (
@@ -383,8 +383,8 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
       )}
       {diarize && embedStatus === 'error' && (
         <div className="flex items-center gap-2">
-          <span className="text-[9px] text-ghost-warning">Speaker model failed to load. Falling back to You/Other.</span>
-          <button onClick={loadEmbed} className="text-[9px] text-ghost-accent hover:underline">Retry</button>
+          <span className="text-subhead text-ghost-warning">Speaker model failed to load. Falling back to You/Other.</span>
+          <button onClick={loadEmbed} className="text-subhead text-ghost-accent hover:underline">Retry</button>
         </div>
       )}
 
@@ -392,12 +392,12 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
       <div className="flex items-center gap-2">
         {/* Audio source toggle (only when idle) — macOS segmented control style */}
         {status === 'idle' && whisperReady && (
-          <div className="flex gap-0.5 p-0.5 rounded-lg bg-ghost-fill">
+          <div className="flex gap-0.5 p-0.5 rounded-full bg-ghost-fill">
             {(['mic', 'system', 'both'] as AudioSource[]).map((src) => (
               <button
                 key={src}
                 onClick={() => setAudioSource(src)}
-                className={`px-2 py-0.5 text-[9px] rounded-md transition-all ${
+                className={`px-2.5 py-0.5 text-subhead rounded-full transition-all ${
                   audioSource === src
                     ? 'bg-ghost-surface text-ghost-text shadow-sm font-medium'
                     : 'text-ghost-text-muted hover:text-ghost-text'
@@ -414,7 +414,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         {whisperReady && (status === 'idle' || status === 'listening') && (
           <button
             onClick={() => setDiarize(d => !d)}
-            className={`px-1.5 py-0.5 rounded-md text-[8px] transition-colors ${
+            className={`px-1.5 py-0.5 rounded-full text-footnote transition-colors ${
               diarize ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted hover:text-ghost-text'
             }`}
             title="Separate speakers (You / A / B / C). Labels the other side of the call by voice."
@@ -444,7 +444,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         >
           {status === 'listening' && (
             <div
-              className="absolute inset-0 rounded-lg border-2 border-ghost-error/50 transition-transform duration-75"
+              className="absolute inset-0 rounded-xl border-2 border-ghost-error/50 transition-transform duration-75"
               style={{
                 transform: `scale(${1 + audioLevel * 0.3})`,
                 opacity: 0.3 + audioLevel * 0.7,
@@ -473,7 +473,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         {/* Status */}
         {status === 'listening' && (
           <>
-            <span className="text-[9px] text-ghost-error font-mono tabular-nums">
+            <span className="text-subhead text-ghost-error font-mono tabular-nums">
               {fmtDuration(duration)}
             </span>
             <div className="flex items-end gap-px h-3">
@@ -485,11 +485,11 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
               ))}
             </div>
             {streamDied ? (
-              <span className="text-[9px] text-ghost-warning animate-pulse">Reconnecting audio...</span>
+              <span className="text-subhead text-ghost-warning animate-pulse">Reconnecting audio...</span>
             ) : isTranscribing ? (
-              <span className="text-[9px] text-ghost-accent animate-pulse">Transcribing...</span>
+              <span className="text-subhead text-ghost-accent animate-pulse">Transcribing...</span>
             ) : (
-              <span className="text-[9px] text-ghost-text-muted">
+              <span className="text-subhead text-ghost-text-muted">
                 {audioSource === 'mic' ? 'Mic' : audioSource === 'system' ? 'System' : 'Mic+System'}
               </span>
             )}
@@ -497,15 +497,15 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
         )}
 
         {status === 'error' && errorMsg && (
-          <span className="text-[9px] text-ghost-warning truncate flex-1">{errorMsg}</span>
+          <span className="text-subhead text-ghost-warning truncate flex-1">{errorMsg}</span>
         )}
 
         {status === 'requesting' && (
-          <span className="text-[9px] text-ghost-text-muted animate-pulse">Requesting access...</span>
+          <span className="text-subhead text-ghost-text-muted animate-pulse">Requesting access...</span>
         )}
 
         {status === 'idle' && whisperReady && (
-          <span className="text-[9px] text-ghost-text-muted opacity-50 truncate">
+          <span className="text-subhead text-ghost-text-muted opacity-50 truncate">
             {sourceIcons[audioSource]}
           </span>
         )}
@@ -516,7 +516,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
             {hearsOtherSide && (
               <button
                 onClick={() => setQuestionsMode(q => !q)}
-                className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
+                className={`px-1.5 py-0.5 rounded-full text-footnote transition-colors ${
                   questionsMode ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
                 }`}
                 title="Suggest a reply as soon as the other side asks a question"
@@ -526,7 +526,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
             )}
             <button
               onClick={() => setAutoSend(a => !a)}
-              className={`px-1.5 py-0.5 rounded text-[8px] transition-colors ${
+              className={`px-1.5 py-0.5 rounded-full text-footnote transition-colors ${
                 autoSendOn ? 'bg-ghost-accent/20 text-ghost-accent' : 'bg-ghost-fill text-ghost-text-muted'
               }`}
               title="Automatically send transcription to Ollama at the configured interval"
@@ -537,17 +537,17 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
               <div className="flex items-center gap-0.5">
                 <button
                   onClick={() => changeInterval(-5)}
-                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
+                  className="w-4 h-4 flex items-center justify-center rounded text-subhead bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Decrease auto-send interval"
                 >
                   -
                 </button>
-                <span className="text-[8px] text-ghost-text-muted w-5 text-center" title="Interval between automatic sends to Ollama (seconds)">
+                <span className="text-footnote text-ghost-text-muted w-5 text-center" title="Interval between automatic sends to Ollama (seconds)">
                   {autoSendInterval}s
                 </span>
                 <button
                   onClick={() => changeInterval(5)}
-                  className="w-4 h-4 flex items-center justify-center rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
+                  className="w-4 h-4 flex items-center justify-center rounded text-subhead bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
                   title="Increase auto-send interval"
                 >
                   +
@@ -564,14 +564,14 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
           <div
             ref={transcriptScrollRef}
             onScroll={handleTranscriptScroll}
-            className="bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1.5 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
+            className="bg-ghost-fill border border-ghost-border rounded-xl px-2.5 py-2 overflow-y-auto resize-y h-24 min-h-[48px] max-h-[480px]"
             title="Drag the bottom edge to resize"
           >
             {hasTranscript ? (
               <div className="space-y-1">
                 {segments.map((seg, i) => (
                   seg.speaker ? (
-                    <p key={i} className="text-[10px] leading-relaxed">
+                    <p key={i} className="text-callout leading-relaxed">
                       {renaming?.label === seg.speaker ? (
                         <input
                           autoFocus
@@ -584,41 +584,41 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                           }}
                           onBlur={commitRename}
                           placeholder={seg.speaker}
-                          className="w-20 mr-1 px-1 rounded text-[8px] bg-ghost-fill-strong text-ghost-text border border-ghost-accent/50 focus:outline-none align-middle"
+                          className="w-20 mr-1 px-1 rounded text-footnote bg-ghost-fill-strong text-ghost-text border border-ghost-accent/50 focus:outline-none align-middle"
                         />
                       ) : isRenamable(seg.speaker) ? (
                         <button
                           onClick={() => setRenaming({ label: seg.speaker, draft: speakerNames[seg.speaker] ?? '' })}
-                          className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle hover:ring-1 hover:ring-current ${speakerChipClass(seg.speaker)}`}
+                          className={`inline-block px-1 rounded text-footnote font-medium mr-1 align-middle hover:ring-1 hover:ring-current ${speakerChipClass(seg.speaker)}`}
                           title="Click to rename this speaker"
                         >
                           {displaySpeaker(seg.speaker, speakerNames)}
                         </button>
                       ) : (
-                        <span className={`inline-block px-1 rounded text-[8px] font-medium mr-1 align-middle ${speakerChipClass(seg.speaker)}`}>
+                        <span className={`inline-block px-1 rounded text-footnote font-medium mr-1 align-middle ${speakerChipClass(seg.speaker)}`}>
                           {seg.speaker}
                         </span>
                       )}
                       <span className="text-ghost-text">{seg.text}</span>
                     </p>
                   ) : (
-                    <p key={i} className="text-[10px] text-ghost-text leading-relaxed">{seg.text}</p>
+                    <p key={i} className="text-callout text-ghost-text leading-relaxed">{seg.text}</p>
                   )
                 ))}
               </div>
             ) : (
-              <p className="text-[10px] text-ghost-text-muted/40 italic">
+              <p className="text-callout text-ghost-text-muted/40 italic">
                 Transcription will appear here...
               </p>
             )}
           </div>
           {offerNotes && onNotes && hasTranscript && status === 'idle' && (
-            <div className="flex items-center gap-1.5 text-[9px] text-ghost-text-muted animate-fade-in">
+            <div className="flex items-center gap-1.5 text-subhead text-ghost-text-muted animate-fade-in">
               <span>Recording stopped. Generate meeting notes?</span>
               <button
                 onClick={handleNotes}
                 disabled={!isConnected}
-                className="px-1.5 py-0.5 rounded font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 disabled:opacity-30 transition-colors"
+                className="px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 disabled:opacity-30 transition-colors"
               >
                 Generate notes
               </button>
@@ -636,21 +636,21 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
               <button
                 onClick={handleSendTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] font-medium bg-ghost-accent/15 dark:bg-ghost-accent/25 text-ghost-accent hover:bg-ghost-accent/25 dark:hover:bg-ghost-accent/35 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded-full text-subhead font-medium bg-ghost-accent/15 dark:bg-ghost-accent/25 text-ghost-accent hover:bg-ghost-accent/25 dark:hover:bg-ghost-accent/35 disabled:opacity-30 transition-colors"
               >
                 Suggest reply
               </button>
               <button
                 onClick={handleSummarizeTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] font-medium bg-purple-500/15 dark:bg-purple-500/25 text-purple-700 dark:text-purple-300 hover:bg-purple-500/25 dark:hover:bg-purple-500/35 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded-full text-subhead font-medium bg-purple-500/15 dark:bg-purple-500/25 text-purple-700 dark:text-purple-300 hover:bg-purple-500/25 dark:hover:bg-purple-500/35 disabled:opacity-30 transition-colors"
               >
                 Summarize
               </button>
               <button
                 onClick={handleSummarizePTTranscript}
                 disabled={!isConnected}
-                className="px-2 py-0.5 rounded text-[9px] font-medium bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25 dark:hover:bg-blue-500/35 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded-full text-subhead font-medium bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 hover:bg-blue-500/25 dark:hover:bg-blue-500/35 disabled:opacity-30 transition-colors"
               >
                 Summary PT
               </button>
@@ -658,7 +658,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                 <button
                   onClick={handleNotes}
                   disabled={!isConnected}
-                  className="px-2 py-0.5 rounded text-[9px] font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-30 transition-colors"
+                  className="px-2 py-0.5 rounded-full text-subhead font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-30 transition-colors"
                   title="Generate meeting notes (summary, decisions, action items, open questions)"
                 >
                   Notes
@@ -667,14 +667,14 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
               <button
                 onClick={handleSaveTranscript}
                 disabled={isSavingTranscript}
-                className="px-2 py-0.5 rounded text-[9px] font-medium bg-green-500/15 dark:bg-green-500/25 text-green-700 dark:text-green-300 hover:bg-green-500/25 dark:hover:bg-green-500/35 disabled:opacity-30 transition-colors"
+                className="px-2 py-0.5 rounded-full text-subhead font-medium bg-green-500/15 dark:bg-green-500/25 text-green-700 dark:text-green-300 hover:bg-green-500/25 dark:hover:bg-green-500/35 disabled:opacity-30 transition-colors"
                 title="Save transcription to .txt"
               >
                 {isSavingTranscript ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={handleClearTranscript}
-                className="px-2 py-0.5 rounded text-[9px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
+                className="px-2 py-0.5 rounded-full text-subhead bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong transition-colors"
               >
                 Clear
               </button>

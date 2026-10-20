@@ -1,6 +1,7 @@
 // Type definitions for the Ghost AI API exposed via preload
 import type { ShortcutAction, Shortcuts } from './lib/shortcuts'
 import type { DocumentInfo, RetrievedChunk } from './lib/rag'
+import type { Session, SessionSummary } from './lib/sessions'
 export interface GhostAPI {
   // Ollama
   ollamaChat: (payload: {
@@ -29,6 +30,17 @@ export interface GhostAPI {
   // Connection + local chat models (cloud and embedding-only models filtered
   // out) and local embedding model names, in one call
   ollamaStatus: (baseUrl: string) => Promise<{ connected: boolean; models: OllamaModel[]; embeddingModels?: string[]; error?: string }>
+
+  // Session history (userData/sessions, written only while saveSessions is on)
+  // Whether session files are encrypted (safeStorage); without it nothing is saved
+  sessionsStatus: () => Promise<{ encrypted: boolean }>
+  // deleted: that session was deleted in History — start a new one
+  sessionsSave: (session: Session) => Promise<{ success: boolean; deleted?: boolean; error?: string }>
+  // Newest first; a query keeps sessions containing all its words (with a snippet)
+  sessionsSearch: (query: string) => Promise<{ sessions: SessionSummary[] }>
+  sessionsGet: (id: string) => Promise<{ session: Session | null }>
+  sessionsDelete: (id: string) => Promise<{ success: boolean }>
+  sessionsDeleteAll: () => Promise<{ success: boolean }>
 
   // Documents: the user's files for local retrieval (stored in userData/documents)
   docsList: () => Promise<{ docs: DocumentInfo[] }>
@@ -86,7 +98,7 @@ export interface GhostAPI {
   onEmbedProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => () => void
 
   // Save conversation / transcript (.txt) or meeting notes (.md)
-  saveConversation: (payload: { content: string; suggestedName: string; format?: SaveFormat }) =>
+  saveConversation: (payload: { content: string; suggestedName: string; format?: SaveFormat; title?: string }) =>
     Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>
 
   // Settings persistence (electron-store). `settings` is the raw stored object
@@ -118,6 +130,7 @@ export interface StreamResult {
   success: boolean
   content?: string
   thinking?: string
+  doneReason?: string // 'length' = stopped because num_ctx ran out
   aborted?: boolean
   error?: string
 }
@@ -151,6 +164,7 @@ export interface ChatMessage {
   thinking?: string // the model's reasoning, shown collapsed above the reply
   stopped?: boolean // generation was stopped by the user
   sources?: string[] // documents whose excerpts were sent with this request
+  notice?: string // something the user should know about this reply (e.g. cut off by the context window)
   kind?: 'notes' // assistant reply holding meeting notes (offers Save .md)
 }
 
@@ -184,6 +198,7 @@ export interface Settings {
   hideFromScreenShare: boolean // content protection: overlay invisible to screen sharing (default true)
   onboardingCompleted: boolean // first-run setup finished or skipped
   embeddingModel: string // Ollama embedding model for document retrieval (keyword search when not installed)
+  saveSessions: boolean // keep transcript + chat + notes in session history (default false)
 }
 
 declare global {

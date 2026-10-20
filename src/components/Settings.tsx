@@ -16,6 +16,7 @@ import {
   WHISPER_MODELS,
 } from '../lib/whisper'
 import { isLocalOllamaUrl, supportsThinking } from '../lib/ollama'
+import { FONT_SIZE_MAX, FONT_SIZE_MIN } from '../lib/settings'
 import {
   DEFAULT_SHORTCUTS,
   findDuplicateShortcuts,
@@ -27,9 +28,9 @@ import { ShortcutRecorder } from './ShortcutRecorder'
 
 const CONTEXT_LENGTH_OPTIONS = [4096, 8192, 16384, 32768]
 
-const SELECT_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none'
-const TEXTAREA_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none'
-const SMALL_BUTTON_CLASS = 'px-2 py-0.5 rounded text-[10px] bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong hover:text-ghost-text transition-colors disabled:opacity-30'
+const SELECT_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-body text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors appearance-none'
+const TEXTAREA_CLASS = 'w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-2 text-body text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors resize-none'
+const SMALL_BUTTON_CLASS = 'px-2 py-0.5 rounded-full text-callout bg-ghost-fill text-ghost-text-muted hover:bg-ghost-fill-strong hover:text-ghost-text transition-colors disabled:opacity-30'
 
 interface SettingsPanelProps {
   settings: Settings
@@ -112,9 +113,9 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in">
       {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
-      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
+      <div className="toolbar">
         <div className="flex items-center gap-2">
           <button
             onClick={handleBack}
@@ -124,13 +125,13 @@ export function SettingsPanel({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <span className="text-sm font-medium text-ghost-text">Settings</span>
+          <span className="text-body font-semibold text-ghost-text">Settings</span>
         </div>
         <button
           onClick={handleSave}
           disabled={!canSave}
           title={!urlIsLocal ? 'The Ollama URL must be local' : duplicateShortcuts.length > 0 ? 'Two actions share a shortcut' : undefined}
-          className="px-3 py-1 rounded-lg bg-ghost-accent hover:bg-ghost-accent-hover text-xs text-white transition-colors no-drag disabled:opacity-40 disabled:hover:bg-ghost-accent"
+          className="px-3 py-1 rounded-full bg-ghost-accent hover:bg-ghost-accent-hover text-body text-white transition-colors no-drag disabled:opacity-40 disabled:hover:bg-ghost-accent"
         >
           Save
         </button>
@@ -142,13 +143,13 @@ export function SettingsPanel({
         <Section title="Ollama Connection">
           <div className="flex items-center gap-2 mb-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-ghost-success' : 'bg-ghost-error'}`} />
-            <span className="text-xs text-ghost-text-muted">
+            <span className="text-body text-ghost-text-muted">
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
             <button
               onClick={handleCheckConnection}
               disabled={isChecking}
-              className="ml-auto text-[10px] text-ghost-accent hover:text-ghost-accent-hover transition-colors disabled:opacity-50"
+              className="ml-auto text-callout text-ghost-accent hover:text-ghost-accent-hover transition-colors disabled:opacity-50"
             >
               {isChecking ? 'Checking...' : 'Check'}
             </button>
@@ -160,11 +161,11 @@ export function SettingsPanel({
             placeholder="http://localhost:11434"
           />
           {urlIsLocal ? (
-            <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+            <p className="text-subhead text-ghost-text-muted opacity-60 mt-1">
               Must be on this machine (localhost, 127.0.0.1 or ::1). Cloud models are hidden.
             </p>
           ) : (
-            <p className="text-[9px] text-ghost-error mt-1" role="alert">
+            <p className="text-subhead text-ghost-error mt-1" role="alert">
               Only a local Ollama is allowed (localhost, 127.0.0.1 or ::1), so no data leaves this machine.
             </p>
           )}
@@ -173,7 +174,7 @@ export function SettingsPanel({
         {/* Model Selection */}
         <Section title="Model">
           <div className="space-y-2">
-            <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider">
+            <label className="text-callout font-medium text-ghost-text-muted">
               Active Model
             </label>
             <select
@@ -190,10 +191,10 @@ export function SettingsPanel({
                 </option>
               ))}
             </select>
-            <p className="text-[9px] text-ghost-text-muted opacity-60">
+            <p className="text-subhead text-ghost-text-muted opacity-60">
               Install models with: <code className="bg-ghost-fill-strong px-1 rounded">ollama pull llama3.2</code>
             </p>
-            <label htmlFor="context-length" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+            <label htmlFor="context-length" className="text-callout font-medium text-ghost-text-muted block pt-1">
               Context window
             </label>
             <select
@@ -206,10 +207,10 @@ export function SettingsPanel({
                 <option key={n} value={n}>{n.toLocaleString('en-US')} tokens</option>
               ))}
             </select>
-            <p className="text-[9px] text-ghost-text-muted opacity-60">
+            <p className="text-subhead text-ghost-text-muted opacity-60">
               Tokens the model sees per request (chat history + transcript). Larger = more memory and slower replies. Older transcript is summarized automatically to fit.
             </p>
-            <label className="flex items-center gap-2 pt-1 text-xs text-ghost-text cursor-pointer">
+            <label className="flex items-center gap-2 pt-1 text-body text-ghost-text cursor-pointer">
               <input
                 type="checkbox"
                 checked={localSettings.reasoning}
@@ -221,7 +222,7 @@ export function SettingsPanel({
               />
               Reasoning
             </label>
-            <p className="text-[9px] text-ghost-text-muted opacity-60">
+            <p className="text-subhead text-ghost-text-muted opacity-60">
               {selectedModelInfo && !supportsThinking(selectedModelInfo)
                 ? 'This model does not reason, so this has no effect on it.'
                 : 'Thinking models (e.g. qwen3) reason before answering: better answers, but much slower. The reasoning is shown above the reply. Turn off for fast suggestions.'}
@@ -232,7 +233,7 @@ export function SettingsPanel({
         {/* Presets */}
         <Section title="Presets">
           <div className="space-y-2">
-            <label htmlFor="active-preset" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+            <label htmlFor="active-preset" className="text-callout font-medium text-ghost-text-muted block">
               Active preset
             </label>
             <select
@@ -290,7 +291,7 @@ export function SettingsPanel({
               )}
             </div>
 
-            <label htmlFor="preset-name" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+            <label htmlFor="preset-name" className="text-callout font-medium text-ghost-text-muted block pt-1">
               Name
             </label>
             <input
@@ -298,10 +299,10 @@ export function SettingsPanel({
               type="text"
               value={activePreset.name}
               onChange={e => editActivePreset({ name: e.target.value })}
-              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
+              className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-body text-ghost-text focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
             />
 
-            <label htmlFor="preset-system-prompt" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+            <label htmlFor="preset-system-prompt" className="text-callout font-medium text-ghost-text-muted block pt-1">
               System prompt
             </label>
             <textarea
@@ -313,7 +314,7 @@ export function SettingsPanel({
               placeholder="Instructions for the assistant..."
             />
 
-            <label htmlFor="preset-suggest-reply" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block pt-1">
+            <label htmlFor="preset-suggest-reply" className="text-callout font-medium text-ghost-text-muted block pt-1">
               Suggest reply prompt
             </label>
             <textarea
@@ -324,11 +325,11 @@ export function SettingsPanel({
               className={TEXTAREA_CLASS}
               placeholder="Prompt sent when using Suggest Reply or Auto..."
             />
-            <p className="text-[9px] text-ghost-text-muted opacity-60">
+            <p className="text-subhead text-ghost-text-muted opacity-60">
               Use <code className="bg-ghost-fill-strong px-1 rounded">{'{{transcript}}'}</code> as placeholder for the transcribed text. This prompt is used by the Suggest Reply button and Auto mode (which sends only what was said since its last send).
             </p>
 
-            <div className="text-[10px] text-ghost-text-muted uppercase tracking-wider pt-1">Quick actions</div>
+            <div className="text-callout font-medium text-ghost-text-muted pt-1">Quick actions</div>
             <div className="space-y-1.5">
               {activePreset.quickActions.map((action, i) => (
                 <div key={i} className="flex gap-1 items-start">
@@ -340,7 +341,7 @@ export function SettingsPanel({
                       quickActions: activePreset.quickActions.map((qa, j) => (j === i ? { ...qa, label: e.target.value } : qa)),
                     })}
                     placeholder="Label"
-                    className="w-24 flex-shrink-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-[10px] text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors"
+                    className="w-24 flex-shrink-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-callout text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors"
                   />
                   <textarea
                     aria-label={`Quick action ${i + 1} prompt`}
@@ -350,7 +351,7 @@ export function SettingsPanel({
                     })}
                     rows={2}
                     placeholder="Prompt sent to the model"
-                    className="flex-1 min-w-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-[10px] text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors resize-none"
+                    className="flex-1 min-w-0 bg-ghost-fill border border-ghost-border rounded-lg px-2 py-1 text-callout text-ghost-text focus:outline-none focus:border-ghost-accent transition-colors resize-none"
                   />
                   <button
                     onClick={() => editActivePreset({ quickActions: activePreset.quickActions.filter((_, j) => j !== i) })}
@@ -368,7 +369,7 @@ export function SettingsPanel({
                 + Add quick action
               </button>
             </div>
-            <p className="text-[9px] text-ghost-text-muted opacity-60">
+            <p className="text-subhead text-ghost-text-muted opacity-60">
               Quick actions appear above the chat input. The live transcript is sent along as context.
             </p>
           </div>
@@ -378,7 +379,7 @@ export function SettingsPanel({
         <Section title="Appearance">
           <div className="space-y-3">
             <div>
-              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+              <label className="text-callout font-medium text-ghost-text-muted mb-1 block">
                 Opacity: {Math.round(localSettings.opacity * 100)}%
               </label>
               <input
@@ -396,13 +397,13 @@ export function SettingsPanel({
               />
             </div>
             <div>
-              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+              <label className="text-callout font-medium text-ghost-text-muted mb-1 block">
                 Font size: {localSettings.fontSize}px
               </label>
               <input
                 type="range"
-                min="10"
-                max="30"
+                min={FONT_SIZE_MIN}
+                max={FONT_SIZE_MAX}
                 step="1"
                 value={localSettings.fontSize}
                 onChange={e => {
@@ -420,7 +421,7 @@ export function SettingsPanel({
         <Section title="Transcription">
           <div className="space-y-3">
             <div className="space-y-1">
-              <label htmlFor="whisper-model" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+              <label htmlFor="whisper-model" className="text-callout font-medium text-ghost-text-muted block">
                 Whisper model
               </label>
               <select
@@ -438,12 +439,12 @@ export function SettingsPanel({
                   </option>
                 ))}
               </select>
-              <p className="text-[9px] text-ghost-text-muted opacity-60">
+              <p className="text-subhead text-ghost-text-muted opacity-60">
                 Larger models are more accurate but slower. Downloaded once on first use and cached locally. Changing the model reloads Whisper (after the current recording stops).
               </p>
             </div>
             <div className="space-y-1">
-              <label htmlFor="transcription-language" className="text-[10px] text-ghost-text-muted uppercase tracking-wider block">
+              <label htmlFor="transcription-language" className="text-callout font-medium text-ghost-text-muted block">
                 Language
               </label>
               <select
@@ -459,14 +460,14 @@ export function SettingsPanel({
                   <option key={l.id} value={l.id}>{l.label}</option>
                 ))}
               </select>
-              <p className="text-[9px] text-ghost-text-muted opacity-60">
+              <p className="text-subhead text-ghost-text-muted opacity-60">
                 {englishOnlyWhisper
                   ? 'English-only model: it always transcribes English and ignores this setting. Pick a multilingual model for other languages.'
                   : 'Language spoken in the audio. Auto-detect works per phrase and can misfire on short phrases; pick the language when you know it.'}
               </p>
             </div>
             <div>
-              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+              <label className="text-callout font-medium text-ghost-text-muted mb-1 block">
                 Max phrase length: {localSettings.transcriptionInterval}s
               </label>
               <input
@@ -481,12 +482,12 @@ export function SettingsPanel({
                 }}
                 className="w-full accent-ghost-accent"
               />
-              <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+              <p className="text-subhead text-ghost-text-muted opacity-60 mt-1">
                 Maximum length of a transcribed phrase (3s to 30s). Speech is sent to Whisper at each natural pause, or after this long if nobody pauses. Applies to a recording already in progress.
               </p>
             </div>
             <div>
-              <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider mb-1 block">
+              <label className="text-callout font-medium text-ghost-text-muted mb-1 block">
                 Speaker separation: {(localSettings.speakerThreshold ?? 0.85).toFixed(2)}
               </label>
               <input
@@ -501,7 +502,7 @@ export function SettingsPanel({
                 }}
                 className="w-full accent-ghost-accent"
               />
-              <p className="text-[9px] text-ghost-text-muted opacity-60 mt-1">
+              <p className="text-subhead text-ghost-text-muted opacity-60 mt-1">
                 Sensitivity for the "Speakers" mode (A/B/C). Higher = separates more speakers; lower = merges similar voices into one. Default 0.85.
               </p>
             </div>
@@ -525,12 +526,12 @@ export function SettingsPanel({
               />
             ))}
             <div className="flex items-center justify-between pt-1">
-              <p className="text-[9px] text-ghost-text-muted opacity-60">
+              <p className="text-subhead text-ghost-text-muted opacity-60">
                 Click a shortcut, then press the new keys (Esc cancels). Esc in the chat clears the input / stops a reply.
               </p>
               <button
                 onClick={() => setLocalSettings(prev => ({ ...prev, shortcuts: { ...DEFAULT_SHORTCUTS } }))}
-                className="flex-shrink-0 ml-2 text-[10px] text-ghost-accent hover:text-ghost-accent-hover transition-colors"
+                className="flex-shrink-0 ml-2 text-callout text-ghost-accent hover:text-ghost-accent-hover transition-colors"
               >
                 Reset
               </button>
@@ -540,7 +541,7 @@ export function SettingsPanel({
 
         {/* Privacy */}
         <Section title="Privacy">
-          <label className="flex items-center gap-2 mb-1 text-xs text-ghost-text cursor-pointer">
+          <label className="flex items-center gap-2 mb-1 text-body text-ghost-text cursor-pointer">
             <input
               type="checkbox"
               checked={localSettings.hideFromScreenShare}
@@ -552,11 +553,26 @@ export function SettingsPanel({
             />
             Hide from screen sharing
           </label>
-          <p className="text-[9px] text-ghost-text-muted opacity-60 mb-2">
+          <p className="text-subhead text-ghost-text-muted opacity-60 mb-2">
             The overlay stays invisible in screen shares, recordings and screenshots taken by other apps (and by Ghost AI's own screenshots).
           </p>
+          <label className="flex items-center gap-2 mb-1 text-body text-ghost-text cursor-pointer">
+            <input
+              type="checkbox"
+              checked={localSettings.saveSessions}
+              onChange={e => {
+                const saveSessions = e.target.checked
+                setLocalSettings(prev => ({ ...prev, saveSessions }))
+              }}
+              className="accent-ghost-accent"
+            />
+            Save session history
+          </label>
+          <p className="text-subhead text-ghost-text-muted opacity-60 mb-2">
+            Off by default. When on, each session's transcript, chat and meeting notes are kept on this machine, encrypted with a key in your system keychain, and can be searched in History. Screenshots are never kept.
+          </p>
           <div className="bg-ghost-success/10 border border-ghost-success/20 rounded-lg p-3">
-            <p className="text-[10px] text-ghost-success leading-relaxed">
+            <p className="text-callout text-ghost-success leading-relaxed">
               Ghost AI is 100% local and anonymous. No data is sent to external servers.
               All conversations stay only on your machine.
               There is no telemetry, analytics, or tracking of any kind.
@@ -566,7 +582,7 @@ export function SettingsPanel({
 
         {/* About */}
         <Section title="About">
-          <div className="text-[10px] text-ghost-text-muted space-y-1">
+          <div className="text-callout text-ghost-text-muted space-y-1">
             <p>Ghost AI v1.0.0</p>
             <p>Local anonymous AI assistant</p>
             <p>Powered by Ollama</p>
@@ -580,10 +596,11 @@ export function SettingsPanel({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
-      <h3 className="text-xs font-medium text-ghost-text mb-2">{title}</h3>
-      {children}
-    </div>
+    // Grouped form section, as in macOS System Settings: title above a rounded inset box
+    <section>
+      <h3 className="text-body font-semibold text-ghost-text mb-1.5 px-1">{title}</h3>
+      <div className="rounded-xl bg-ghost-fill border border-ghost-border p-3">{children}</div>
+    </section>
   )
 }
 
@@ -600,7 +617,7 @@ function Input({
 }) {
   return (
     <div className="space-y-1">
-      <label className="text-[10px] text-ghost-text-muted uppercase tracking-wider">
+      <label className="text-callout font-medium text-ghost-text-muted">
         {label}
       </label>
       <input
@@ -608,7 +625,7 @@ function Input({
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-xs text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
+        className="w-full bg-ghost-fill border border-ghost-border rounded-lg px-3 py-1.5 text-body text-ghost-text placeholder-ghost-text-muted/50 focus:outline-none focus:border-ghost-accent focus:ring-2 focus:ring-ghost-accent/30 transition-colors"
       />
     </div>
   )

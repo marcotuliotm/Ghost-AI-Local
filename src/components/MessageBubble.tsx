@@ -54,16 +54,16 @@ export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
       >
         {/* Role indicator */}
         <div className="flex items-center gap-1.5 mb-1">
-          <span className={`text-[9px] font-medium uppercase tracking-wider ${
+          <span className={`text-subhead font-semibold ${
             isUser ? 'text-ghost-accent' : 'text-ghost-text-muted'
           }`}>
             {isUser ? 'You' : 'Ghost'}
           </span>
-          <span className="text-[8px] text-ghost-text-muted opacity-40">
+          <span className="text-footnote text-ghost-text-muted opacity-40">
             {formatTime(message.timestamp)}
           </span>
           {message.isStreaming && (
-            <span className="text-[8px] text-ghost-accent animate-pulse-dot">
+            <span className="text-footnote text-ghost-accent animate-pulse-dot">
               typing...
             </span>
           )}
@@ -73,7 +73,7 @@ export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
             <button
               onClick={handleSaveNotes}
               disabled={savingNotes}
-              className="ml-auto px-1.5 py-0.5 rounded text-[8px] font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-60 transition-colors"
+              className="ml-auto px-1.5 py-0.5 rounded-full text-footnote font-medium bg-amber-500/15 dark:bg-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 dark:hover:bg-amber-500/35 disabled:opacity-60 transition-colors"
               title="Save notes to a .md file"
             >
               {savingNotes ? 'Saving...' : 'Save .md'}
@@ -118,18 +118,21 @@ export function MessageBubble({ message, onSaveNotes }: MessageBubbleProps) {
 
         {/* Message content: the user's text as typed, replies as Markdown */}
         {isUser ? (
-          <div className="text-xs leading-relaxed whitespace-pre-wrap break-words">{message.content}</div>
+          <div className="text-body leading-relaxed whitespace-pre-wrap break-words">{message.content}</div>
         ) : (
-          <div className="response-content text-xs leading-relaxed break-words">
+          <div className="response-content text-body leading-relaxed break-words">
             {message.content && <Markdown text={message.content} />}
             {message.isStreaming && !message.content && !message.thinking && (
               <span className="cursor-blink text-ghost-text-muted">Thinking</span>
             )}
             {message.stopped && (
-              <span className="block text-[9px] text-ghost-text-muted italic mt-1">Stopped</span>
+              <span className="block text-subhead text-ghost-text-muted italic mt-1">Stopped</span>
+            )}
+            {message.notice && (
+              <span className="block text-subhead text-ghost-warning mt-1">{message.notice}</span>
             )}
             {message.sources && message.sources.length > 0 && (
-              <span className="block text-[9px] text-ghost-text-muted mt-1" title="Excerpts from these documents were sent with the request">
+              <span className="block text-subhead text-ghost-text-muted mt-1" title="Excerpts from these documents were sent with the request">
                 From: {message.sources.join(', ')}
               </span>
             )}
@@ -150,12 +153,12 @@ function Reasoning({ text, live }: { text: string; live: boolean }) {
 
   return (
     <details open={live} className="mb-1.5 rounded-md bg-ghost-fill px-2 py-1">
-      <summary className="cursor-pointer select-none text-[9px] text-ghost-text-muted">
+      <summary className="cursor-pointer select-none text-subhead text-ghost-text-muted">
         {live ? <span className="animate-pulse">Reasoning...</span> : 'Reasoning'}
       </summary>
       <div
         ref={bodyRef}
-        className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-ghost-text-muted"
+        className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-callout leading-relaxed text-ghost-text-muted"
       >
         {text}
       </div>

@@ -49,7 +49,7 @@ export function ShortcutRecorder({ label, value, onChange, isMac, error }: Short
 
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-xs text-ghost-text-muted">{label}</span>
+      <span className="text-body text-ghost-text-muted">{label}</span>
       <div className="flex flex-col items-end">
         <button
           type="button"
@@ -57,7 +57,7 @@ export function ShortcutRecorder({ label, value, onChange, isMac, error }: Short
           onClick={() => setRecording(r => !r)}
           onKeyDown={handleKeyDown}
           onBlur={stop}
-          className={`min-w-[96px] px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+          className={`min-w-[96px] px-1.5 py-0.5 rounded-full text-subhead font-mono transition-colors ${
             recording
               ? 'bg-ghost-accent/20 text-ghost-accent ring-1 ring-ghost-accent/50'
               : error
@@ -68,7 +68,7 @@ export function ShortcutRecorder({ label, value, onChange, isMac, error }: Short
           {recording ? 'Press keys...' : formatAccelerator(value, isMac)}
         </button>
         {(hint || error) && (
-          <span className={`text-[8px] mt-0.5 ${hint ? 'text-ghost-text-muted' : 'text-ghost-error'}`}>{hint || error}</span>
+          <span className={`text-footnote mt-0.5 ${hint ? 'text-ghost-text-muted' : 'text-ghost-error'}`}>{hint || error}</span>
         )}
       </div>
     </div>
