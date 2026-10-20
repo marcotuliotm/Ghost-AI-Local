@@ -60,6 +60,7 @@ describe('HistoryPanel', () => {
     await waitFor(() => expect(window.ghostAPI.saveConversation).toHaveBeenCalled())
     const payload = vi.mocked(window.ghostAPI.saveConversation).mock.calls[0][0]
     expect(payload.format).toBe('md')
+    expect(payload.title).toBe('Export session')
     expect(payload.content).toContain('## Transcript')
 
     fireEvent.click(screen.getByText('Delete'))
@@ -82,5 +83,21 @@ describe('HistoryPanel encryption', () => {
     window.ghostAPI.sessionsStatus = vi.fn().mockResolvedValue({ encrypted: false })
     setup()
     expect(await screen.findByRole('alert')).toHaveTextContent('Encryption is not available')
+  })
+})
+
+describe('HistoryPanel turning saving on', () => {
+  it('should list the conversation saved right after saving is turned on', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      window.ghostAPI.sessionsSearch = vi.fn().mockResolvedValueOnce({ sessions: [] }).mockResolvedValue({ sessions: [summary()] })
+      const { rerender } = render(<HistoryPanel settings={makeSettings()} updateSettings={vi.fn()} onBack={vi.fn()} />)
+      expect(await screen.findByText('No saved sessions.')).toBeInTheDocument()
+      rerender(<HistoryPanel settings={makeSettings({ saveSessions: true })} updateSettings={vi.fn()} onBack={vi.fn()} />)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(await screen.findByText('Budget call')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

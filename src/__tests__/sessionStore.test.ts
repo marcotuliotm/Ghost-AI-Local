@@ -32,6 +32,8 @@ describe('SessionStore', () => {
     expect(fs.readdirSync(dir)).toEqual([`${ID}.json`])
     expect(fileText()).not.toContain('hello')
     expect(JSON.parse(fileText())).toMatchObject({ version: 1, encrypted: expect.any(String) })
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(dir, `${ID}.json`)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect(fs.statSync(dir).mode & 0o777).toBe(0o700)
     const reopened = new SessionStore(dir, cipher())
     expect(reopened.get(ID)?.transcript).toBe('You: hello again')
     expect(reopened.search('again').map(s => s.id)).toEqual([ID])

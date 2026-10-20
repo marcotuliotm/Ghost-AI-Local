@@ -99,7 +99,7 @@ const api = {
   embedStatus: () => ipcRenderer.invoke('embed-status'),
 
   // Save conversation / transcript (.txt) or meeting notes (.md)
-  saveConversation: (payload: { content: string; suggestedName: string; format?: 'txt' | 'md' }) =>
+  saveConversation: (payload: { content: string; suggestedName: string; format?: 'txt' | 'md'; title?: string }) =>
     ipcRenderer.invoke('save-conversation', payload),
 
   // Settings persistence (electron-store)

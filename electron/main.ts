@@ -1161,11 +1161,12 @@ function setupIPC() {
     }
   })
 
-  // Save conversation / transcript to .txt, or meeting notes to .md
+  // Save conversation / transcript to .txt, or meeting notes / a session to .md
   ipcMain.handle('save-conversation', async (_event, payload: {
     content: string
     suggestedName: string
     format?: 'txt' | 'md'
+    title?: string // dialog title
   }) => {
     try {
       const format = payload.format === 'md' ? 'md' : 'txt'
@@ -1173,7 +1174,7 @@ function setupIPC() {
         ? payload.suggestedName
         : `${payload.suggestedName}.${format}`
       const { canceled, filePath: savePath } = await dialog.showSaveDialog({
-        title: format === 'md' ? 'Save notes' : 'Save conversation',
+        title: typeof payload.title === 'string' && payload.title ? payload.title.slice(0, 60) : format === 'md' ? 'Save notes' : 'Save conversation',
         defaultPath: path.join(app.getPath('documents'), name),
         filters: format === 'md'
           ? [{ name: 'Markdown', extensions: ['md'] }]

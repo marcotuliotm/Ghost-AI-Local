@@ -52,11 +52,13 @@ export class SessionStore {
 
   private write(session: Session) {
     if (!this.cipher) throw new Error(ENCRYPTION_UNAVAILABLE)
-    fs.mkdirSync(this.dir, { recursive: true })
+    // Readable by this user only
+    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 })
+    fs.chmodSync(this.dir, 0o700) // also a folder created before this rule
     const target = this.file(session.id)
     const tmp = `${target}.tmp`
     const encrypted = this.cipher.encrypt(JSON.stringify(session)).toString('base64')
-    fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, encrypted }))
+    fs.writeFileSync(tmp, JSON.stringify({ version: FILE_VERSION, encrypted }), { mode: 0o600 })
     fs.renameSync(tmp, target) // atomic: a crash never leaves a half-written file
   }
 

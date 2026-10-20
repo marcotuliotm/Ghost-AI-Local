@@ -4,6 +4,7 @@ import { MessageBubble } from './MessageBubble'
 import { sessionMarkdown, type Session, type SessionSummary } from '../lib/sessions'
 import { notesDocument } from '../lib/notes'
 import { fileStamp } from '../lib/filename'
+import { SESSION_SAVE_DELAY_MS } from '../hooks/useSessionHistory'
 
 interface HistoryPanelProps {
   settings: Settings
@@ -63,6 +64,14 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
     return () => clearTimeout(timer)
   }, [query, refresh])
 
+  // Turning saving on saves the conversation on screen: list it once written
+  // (only on that change, not on every query)
+  useEffect(() => {
+    if (!settings.saveSessions) return
+    const timer = setTimeout(() => refresh(query), SESSION_SAVE_DELAY_MS + 500)
+    return () => clearTimeout(timer)
+  }, [settings.saveSessions])
+
   const openSession = async (id: string) => {
     const { session } = await window.ghostAPI.sessionsGet(id)
     if (session) setOpen(session)
@@ -86,7 +95,7 @@ export function HistoryPanel({ settings, updateSettings, onBack }: HistoryPanelP
 
   const exportSession = async (s: Session) => {
     const { date, time } = fileStamp(new Date(s.startedAt))
-    await window.ghostAPI.saveConversation({ content: sessionMarkdown(s), suggestedName: `session_${date}_${time}.md`, format: 'md' })
+    await window.ghostAPI.saveConversation({ content: sessionMarkdown(s), suggestedName: `session_${date}_${time}.md`, format: 'md', title: 'Export session' })
   }
 
   const saveNotes = (s: Session, timestamp: number) => async (markdown: string) => {

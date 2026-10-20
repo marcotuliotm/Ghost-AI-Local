@@ -97,7 +97,7 @@ export interface GhostAPI {
   onEmbedProgress: (callback: (data: { status: string; message: string; progress: number }) => void) => () => void
 
   // Save conversation / transcript (.txt) or meeting notes (.md)
-  saveConversation: (payload: { content: string; suggestedName: string; format?: SaveFormat }) =>
+  saveConversation: (payload: { content: string; suggestedName: string; format?: SaveFormat; title?: string }) =>
     Promise<{ success: boolean; canceled?: boolean; path?: string; error?: string }>
 
   // Settings persistence (electron-store). `settings` is the raw stored object
