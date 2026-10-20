@@ -10,9 +10,9 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
   const isMac = isMacPlatform()
   const keys = (action: keyof Shortcuts) => formatAccelerator(shortcuts[action] ?? DEFAULT_SHORTCUTS[action], isMac)
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in">
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in">
       {/* Header — pl clears the native macOS traffic-light buttons (top-left) */}
-      <div className="flex items-center justify-between pl-[78px] pr-4 py-3 border-b border-ghost-border drag-region">
+      <div className="toolbar">
         <div className="flex items-center gap-2">
           <button
             onClick={onBack}
@@ -22,7 +22,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <span className="text-sm font-medium text-ghost-text">Help</span>
+          <span className="text-body font-semibold text-ghost-text">Help</span>
         </div>
       </div>
 
@@ -30,7 +30,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 no-drag">
         {/* Keyboard Shortcuts */}
         <Section title="Keyboard Shortcuts">
-          <div className="space-y-1.5 text-xs text-ghost-text-muted">
+          <div className="space-y-1.5 text-body text-ghost-text-muted">
             <ShortcutRow label="Show/Hide overlay" shortcut={keys('toggleOverlay')} />
             <ShortcutRow label="Capture screenshot & analyze" shortcut={keys('screenshot')} />
             <ShortcutRow label="Crop screen region & analyze" shortcut={keys('cropScreenshot')} />
@@ -45,15 +45,15 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
         {/* Title Bar Buttons */}
         {onRunSetup && (
           <div className="flex items-center justify-between bg-ghost-fill rounded-lg px-3 py-2">
-            <span className="text-[10px] text-ghost-text-muted">Check Ollama, permissions and the speech model again.</span>
-            <button onClick={onRunSetup} className="ml-2 flex-shrink-0 text-[10px] text-ghost-accent hover:text-ghost-accent-hover">
+            <span className="text-callout text-ghost-text-muted">Check Ollama, permissions and the speech model again.</span>
+            <button onClick={onRunSetup} className="ml-2 flex-shrink-0 text-callout text-ghost-accent hover:text-ghost-accent-hover">
               Run setup again
             </button>
           </div>
         )}
 
         <Section title="Title Bar Buttons">
-          <div className="space-y-2 text-[10px] text-ghost-text-muted">
+          <div className="space-y-2 text-callout text-ghost-text-muted">
             <ButtonRow
               icon={<span className="block w-6 h-1 rounded-full bg-ghost-fill-strong overflow-hidden"><span className="block h-full w-3/5 bg-ghost-accent" /></span>}
               label="Context meter"
@@ -174,20 +174,20 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
 
         {/* Audio Capture Buttons */}
         <Section title="Audio Buttons">
-          <div className="space-y-2 text-[10px] text-ghost-text-muted">
+          <div className="space-y-2 text-callout text-ghost-text-muted">
             <ButtonRow
               icon={
                 <div className="flex rounded-lg overflow-hidden border border-ghost-border">
-                  <span className="px-1 py-0.5 text-[7px] bg-ghost-accent/20 text-ghost-accent">Mic</span>
-                  <span className="px-1 py-0.5 text-[7px] bg-ghost-fill">System</span>
-                  <span className="px-1 py-0.5 text-[7px] bg-ghost-fill">Both</span>
+                  <span className="px-1 py-0.5 text-footnote bg-ghost-accent/20 text-ghost-accent">Mic</span>
+                  <span className="px-1 py-0.5 text-footnote bg-ghost-fill">System</span>
+                  <span className="px-1 py-0.5 text-footnote bg-ghost-fill">Both</span>
                 </div>
               }
               label="Audio Source"
               description="Mic = your microphone | System = audio from meetings/videos/calls | Both = mic + system on separate channels (when the mic picks up the speakers, the repeated text is dropped)"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Speakers</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Speakers</span>}
               label="Speakers (diarization)"
               description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. Click a label to rename it (e.g. A → Maria); the name is used in suggestions, notes and saved files. First use downloads a small speaker model."
             />
@@ -201,53 +201,53 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
               description="Starts or stops audio capture. Audio is transcribed locally by Whisper, using the model and language chosen in Settings (a model change made while recording applies after Stop). If macOS kills the stream (~20 min), it auto-reconnects"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Questions</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Questions</span>}
               label="Questions"
               description="While recording the other side (System or Both): as soon as they ask a question, a reply is suggested right away instead of waiting for the Auto timer"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Auto</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Auto</span>}
               label="Auto"
               description="When active, what was said since the last send is automatically sent to Ollama at the configured interval for reply suggestions (the rest of the conversation goes along as context)"
             />
             <ButtonRow
               icon={
                 <div className="flex items-center gap-0.5">
-                  <span className="px-1 py-0.5 rounded text-[8px] bg-ghost-fill text-ghost-text-muted">-</span>
-                  <span className="text-[8px] text-ghost-text-muted">30s</span>
-                  <span className="px-1 py-0.5 rounded text-[8px] bg-ghost-fill text-ghost-text-muted">+</span>
+                  <span className="px-1 py-0.5 rounded text-footnote bg-ghost-fill text-ghost-text-muted">-</span>
+                  <span className="text-footnote text-ghost-text-muted">30s</span>
+                  <span className="px-1 py-0.5 rounded text-footnote bg-ghost-fill text-ghost-text-muted">+</span>
                 </div>
               }
               label="Auto Interval (10-120s)"
               description="Controls how often the transcription is sent to Ollama when Auto is active. Appears when Auto is on. Use - / + to adjust (steps of 5s)"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}
               label="Suggest reply"
               description="Asks Ollama to suggest a natural response to the most recent part of the conversation"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-purple-500/20 text-purple-400">Summarize</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-purple-500/20 text-purple-400">Summarize</span>}
               label="Summarize"
               description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-blue-500/20 text-blue-400">Summary PT</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-blue-500/20 text-blue-400">Summary PT</span>}
               label="Summary PT"
               description="Sends the transcription to Ollama to generate a bullet-point summary of the key topics, each with a short explanation, in Brazilian Portuguese (pt-BR)"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-amber-500/20 text-amber-500">Notes</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-amber-500/20 text-amber-500">Notes</span>}
               label="Notes"
               description="Generates meeting notes in Markdown, in the language of the conversation: Summary, Key decisions, Action items (- [ ] task — owner, using the You/A/B/C speaker labels when Speakers is on) and Open questions. Also offered when you stop recording. Use Save .md on the reply to export them"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-success/20 text-ghost-success">Save</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-success/20 text-ghost-success">Save</span>}
               label="Save"
               description="Saves the transcription to a .txt file with an AI-generated filename"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Clear</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-fill-strong text-ghost-text-muted">Clear</span>}
               label="Clear"
               description="Clears the accumulated transcription"
             />
@@ -256,24 +256,24 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
 
         {/* Chat */}
         <Section title="Chat">
-          <div className="space-y-2 text-[10px] text-ghost-text-muted">
+          <div className="space-y-2 text-callout text-ghost-text-muted">
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-error/80 text-white">■</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-error/80 text-white">■</span>}
               label="Stop"
               description="Replaces Send while a reply is generating. Stops it and keeps what was written so far (Esc does the same)"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Queue</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-fill-strong text-ghost-text-muted">Queue</span>}
               label="Queued requests"
               description="Screenshots, Notes, Summarize and quick actions requested while a reply is generating wait their turn (up to 3) instead of being dropped"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Reasoning</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-fill-strong text-ghost-text-muted">Reasoning</span>}
               label="Reasoning"
               description="Thinking models (e.g. qwen3) reason before answering; the reasoning is shown above the reply and collapses when the answer starts. Reasoning takes room in the context window; if it fills up before an answer, Ghost AI answers without reasoning and says so. Turn it off in Settings for faster replies"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded text-[8px] bg-ghost-fill-strong text-ghost-text-muted">Copy</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-fill-strong text-ghost-text-muted">Copy</span>}
               label="Formatted replies"
               description="Replies are rendered as Markdown with highlighted code; hover a code block to copy it. Links and images are shown as text only, nothing is loaded from the internet"
             />
@@ -282,22 +282,22 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
 
         {/* Quick Actions */}
         <Section title="Quick Actions (Chat)">
-          <div className="space-y-2 text-[10px] text-ghost-text-muted">
+          <div className="space-y-2 text-callout text-ghost-text-muted">
             <p className="opacity-70 leading-relaxed">
               Quick actions come from the active preset and can be edited in Settings. The General preset has:
             </p>
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded-full text-[8px] bg-ghost-accent/20 text-ghost-accent">Summarize</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Summarize</span>}
               label="Summarize"
               description="Summarizes the entire conversation into key points"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded-full text-[8px] bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Suggest reply</span>}
               label="Suggest reply"
               description="Suggests what you should respond based on context"
             />
             <ButtonRow
-              icon={<span className="px-1.5 py-0.5 rounded-full text-[8px] bg-ghost-accent/20 text-ghost-accent">Next steps</span>}
+              icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Next steps</span>}
               label="Next steps"
               description="Suggests the logical next steps"
             />
@@ -311,7 +311,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-xs font-medium text-ghost-text mb-2">{title}</h3>
+      <h3 className="text-body font-medium text-ghost-text mb-2">{title}</h3>
       {children}
     </div>
   )
@@ -320,8 +320,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ShortcutRow({ label, shortcut }: { label: string; shortcut: string }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-xs text-ghost-text-muted">{label}</span>
-      <kbd className="bg-ghost-fill-strong px-1.5 py-0.5 rounded text-[9px] font-mono text-ghost-text">
+      <span className="text-body text-ghost-text-muted">{label}</span>
+      <kbd className="bg-ghost-fill-strong px-1.5 py-0.5 rounded-full text-subhead font-mono text-ghost-text">
         {shortcut}
       </kbd>
     </div>

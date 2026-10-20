@@ -39,6 +39,7 @@ import {
 } from '../src/lib/shortcuts'
 import { FULL_SCREENSHOT_MAX_EDGE, fitWithin, nativeCaptureSize } from '../src/lib/screenshot'
 import { compactBounds } from '../src/lib/compact'
+import { defaultWindowBounds, TRAFFIC_LIGHT_POSITION, WINDOW_MIN_SIZE } from '../src/lib/window'
 import { DocumentStore, type Embedder } from './documents'
 import { SessionStore, type Cipher } from './sessions'
 import { embeddingPrefix, findModel } from '../src/lib/rag'
@@ -90,17 +91,16 @@ const TRAY_ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAWElEQVR4nGNgoBGQBeIMIO6H4gyoGFEApOE/DtxPSPM2PJpheBs5NhN0iSwJmmEYJUwyyDAgg1znY/UGxQZQ7AWKA5FUb+BMUBQlJGJcQjApwwBFmYkkAAB0qod5uswDxAAAAABJRU5ErkJggg=='
 
 function createWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const bounds = defaultWindowBounds(screen.getPrimaryDisplay().workArea)
 
   mainWindow = new BrowserWindow({
-    width: 420,
-    height: 680,
-    x: width - 440,
-    y: 60,
+    ...bounds,
+    minWidth: WINDOW_MIN_SIZE.width,
+    minHeight: WINDOW_MIN_SIZE.height,
     // macOS-native chrome: hidden title bar exposes the real traffic-light
     // buttons (red/yellow/green) in the top-left corner.
     titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 12, y: 14 },
+    trafficLightPosition: TRAFFIC_LIGHT_POSITION, // centered in the 52pt toolbar
     alwaysOnTop: true,
     resizable: true,
     hasShadow: true,
@@ -898,11 +898,13 @@ function setupIPC() {
       // No traffic lights on the card: they'd cover its toolbar, and a stray
       // click on the red one would quit mid-call
       if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false)
+      mainWindow.setMinimumSize(0, 0) // the card is smaller than the window's minimum
       mainWindow.setBounds(compactBounds(normalBounds, workArea))
     } else if (!enabled && normalBounds) {
       mainWindow.setIgnoreMouseEvents(false)
       if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(true)
       mainWindow.setBounds(normalBounds)
+      mainWindow.setMinimumSize(WINDOW_MIN_SIZE.width, WINDOW_MIN_SIZE.height)
       normalBounds = null
     }
   })

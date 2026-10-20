@@ -17,6 +17,6 @@ describe('compactBounds', () => {
 
   it('should work on a secondary display', () => {
     const second = { x: 1710, y: 0, width: 1920, height: 1080 }
-    expect(compactBounds({ x: 3000, y: 100, width: 420, height: 680 }, second)).toEqual({ x: 3060, y: 100, ...COMPACT_SIZE })
+    expect(compactBounds({ x: 3000, y: 100, width: 420, height: 680 }, second)).toEqual({ x: 3420 - COMPACT_SIZE.width, y: 100, ...COMPACT_SIZE })
   })
 })

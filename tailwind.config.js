@@ -26,6 +26,15 @@ module.exports = {
           error: '#FF453B',
         },
       },
+      // macOS text styles at the default 13px body (rem = Settings > Font size,
+      // set on <html>), so the font-size setting scales the whole UI
+      fontSize: {
+        footnote: ['0.77rem', { lineHeight: '1.3' }],   // 10pt
+        subhead: ['0.846rem', { lineHeight: '1.35' }],  // 11pt
+        callout: ['0.923rem', { lineHeight: '1.4' }],   // 12pt
+        body: ['1rem', { lineHeight: '1.4' }],          // 13pt
+        title3: ['1.154rem', { lineHeight: '1.3' }],    // 15pt
+      },
       animation: {
         'fade-in': 'fadeIn 0.2s ease-out',
         'slide-up': 'slideUp 0.3s ease-out',

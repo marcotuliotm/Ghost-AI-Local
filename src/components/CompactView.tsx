@@ -41,11 +41,11 @@ export function CompactView({ messages, isStreaming, onExpand, shortcutLabel }: 
     : ''
 
   return (
-    <div className="w-full h-full flex flex-col glass rounded-xl overflow-hidden animate-fade-in" data-testid="compact-view">
+    <div className="w-full h-full flex flex-col glass overflow-hidden animate-fade-in" data-testid="compact-view">
       <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-7 border-b border-ghost-border no-drag" {...interactive}>
         <div className="drag-region flex-1 h-full flex items-center gap-1.5 min-w-0" title="Drag to move">
           <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isStreaming ? 'bg-ghost-accent animate-pulse-dot' : 'bg-ghost-success'}`} />
-          <span className="text-[9px] text-ghost-text-muted truncate">
+          <span className="text-subhead text-ghost-text-muted truncate">
             {isStreaming ? 'Thinking...' : 'Latest suggestion'}
           </span>
         </div>
@@ -60,13 +60,13 @@ export function CompactView({ messages, isStreaming, onExpand, shortcutLabel }: 
         </button>
       </div>
 
-      <div ref={bodyRef} className="flex-1 overflow-hidden px-3 py-2 response-content text-xs leading-relaxed break-words">
+      <div ref={bodyRef} className="flex-1 overflow-hidden px-3 py-2 response-content text-body leading-relaxed break-words">
         {latest?.content ? (
           <Markdown text={latest.content} />
         ) : thinkingTail ? (
-          <p className="text-[10px] text-ghost-text-muted italic">{thinkingTail}</p>
+          <p className="text-callout text-ghost-text-muted italic">{thinkingTail}</p>
         ) : (
-          <p className="text-[10px] text-ghost-text-muted opacity-70">
+          <p className="text-callout text-ghost-text-muted opacity-70">
             Suggestions appear here. Use Questions, Auto or the shortcuts — recording keeps running.
           </p>
         )}
