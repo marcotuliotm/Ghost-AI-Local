@@ -8,7 +8,7 @@ Ghost AI is a **100% local, anonymous AI assistant** built as a macOS overlay ap
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Electron 42.3.2 (see audio-loopback note below) |
+| Framework | Electron 42.11.16 (see audio-loopback note below) |
 | Frontend | React 18 + TypeScript 5 |
 | Bundler | Vite 6 + vite-plugin-electron |
 | Styling | TailwindCSS 3 |
