@@ -4,6 +4,7 @@ import { ChatInput } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
 import { AudioCapture } from './AudioCapture'
 import { useTranscriptContext } from '../hooks/useTranscriptContext'
+import { useSessionHistory } from '../hooks/useSessionHistory'
 import type { SendMessageOptions } from '../hooks/useGhostAI'
 import { usageRatio, type ContextUsage } from '../lib/context'
 import { isReasoningActive } from '../lib/ollama'
@@ -40,6 +41,8 @@ interface OverlayProps {
   onCompact?: () => void
   // Open the documents panel (local retrieval)
   onOpenDocuments?: () => void
+  // Open the session history panel
+  onOpenHistory?: () => void
   sendMessage: (content: string, screenshot?: string, options?: SendMessageOptions) => void
   askSuggestion: (context: string) => void
   analyzeScreenshot: () => void
@@ -63,6 +66,7 @@ export function Overlay({
   contextUsage = null,
   onCompact,
   onOpenDocuments,
+  onOpenHistory,
   sendMessage,
   analyzeScreenshot,
   analyzeScreenshotCrop,
@@ -87,6 +91,14 @@ export function Overlay({
   const { getContext: getTranscriptContext } = useTranscriptContext(currentTranscript, settings, isConnected, reasoning)
   // Supplies the Suggest reply template and the quick actions (useGhostAI uses its system prompt)
   const activePreset = getActivePreset(settings)
+  // Session history (opt-in): saved only while Settings > Privacy allows it
+  useSessionHistory({
+    enabled: settingsLoaded && settings.saveSessions,
+    messages,
+    transcript: currentTranscript,
+    model: settings.selectedModel,
+    preset: activePreset.name,
+  })
   // Labels for the configured global shortcuts ("Cmd+Shift+S")
   const isMac = isMacPlatform()
   const keys = (action: ShortcutAction) =>
@@ -238,6 +250,19 @@ export function Overlay({
             >
               <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+          )}
+
+          {/* Session history */}
+          {onOpenHistory && (
+            <button
+              onClick={onOpenHistory}
+              className="p-1 rounded hover:bg-ghost-fill-strong transition-colors"
+              title="Session history"
+            >
+              <svg className="w-3 h-3 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
           )}

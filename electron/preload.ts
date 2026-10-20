@@ -55,6 +55,14 @@ const api = {
   setCompactMode: (enabled: boolean) =>
     ipcRenderer.send('set-compact-mode', enabled),
 
+  // Session history
+  sessionsStatus: () => ipcRenderer.invoke('sessions-status'),
+  sessionsSave: (session: unknown) => ipcRenderer.invoke('sessions-save', session),
+  sessionsSearch: (query: string) => ipcRenderer.invoke('sessions-search', query),
+  sessionsGet: (id: string) => ipcRenderer.invoke('sessions-get', id),
+  sessionsDelete: (id: string) => ipcRenderer.invoke('sessions-delete', id),
+  sessionsDeleteAll: () => ipcRenderer.invoke('sessions-delete-all'),
+
   // Documents (local retrieval)
   docsList: () => ipcRenderer.invoke('docs-list'),
   docsAdd: (opts: { baseUrl: string; embeddingModel: string }) => ipcRenderer.invoke('docs-add', opts),

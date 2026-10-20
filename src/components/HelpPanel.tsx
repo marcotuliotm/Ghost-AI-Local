@@ -71,6 +71,15 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
             <ButtonRow
               icon={
                 <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              }
+              label="History"
+              description="Saved sessions — transcript, chat and meeting notes — with text search, Export .md and Delete. Saving is off by default: turn on Save sessions there or in Settings > Privacy. A session ends when you clear the chat or the transcript. Kept on this machine only, encrypted (key in the macOS Keychain); screenshots are never saved"
+            />
+            <ButtonRow
+              icon={
+                <svg className="w-3.5 h-3.5 text-ghost-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
                 </svg>
               }

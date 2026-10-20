@@ -1,6 +1,7 @@
 // Type definitions for the Ghost AI API exposed via preload
 import type { ShortcutAction, Shortcuts } from './lib/shortcuts'
 import type { DocumentInfo, RetrievedChunk } from './lib/rag'
+import type { Session, SessionSummary } from './lib/sessions'
 export interface GhostAPI {
   // Ollama
   ollamaChat: (payload: {
@@ -29,6 +30,16 @@ export interface GhostAPI {
   // Connection + local chat models (cloud and embedding-only models filtered
   // out) and local embedding model names, in one call
   ollamaStatus: (baseUrl: string) => Promise<{ connected: boolean; models: OllamaModel[]; embeddingModels?: string[]; error?: string }>
+
+  // Session history (userData/sessions, written only while saveSessions is on)
+  // Whether session files are encrypted (safeStorage); without it nothing is saved
+  sessionsStatus: () => Promise<{ encrypted: boolean }>
+  sessionsSave: (session: Session) => Promise<{ success: boolean; error?: string }>
+  // Newest first; a query keeps sessions containing all its words (with a snippet)
+  sessionsSearch: (query: string) => Promise<{ sessions: SessionSummary[] }>
+  sessionsGet: (id: string) => Promise<{ session: Session | null }>
+  sessionsDelete: (id: string) => Promise<{ success: boolean }>
+  sessionsDeleteAll: () => Promise<{ success: boolean }>
 
   // Documents: the user's files for local retrieval (stored in userData/documents)
   docsList: () => Promise<{ docs: DocumentInfo[] }>
@@ -186,6 +197,7 @@ export interface Settings {
   hideFromScreenShare: boolean // content protection: overlay invisible to screen sharing (default true)
   onboardingCompleted: boolean // first-run setup finished or skipped
   embeddingModel: string // Ollama embedding model for document retrieval (keyword search when not installed)
+  saveSessions: boolean // keep transcript + chat + notes in session history (default false)
 }
 
 declare global {

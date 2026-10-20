@@ -26,9 +26,10 @@ Ghost-AI-Local/
 ├── electron/
 │   ├── main.ts          # Main process: window, tray, shortcuts, IPC, Whisper, settings store
 │   ├── documents.ts     # DocumentStore: read/extract (PDF via unpdf), chunk, embed, index on disk, search
+│   ├── sessions.ts      # SessionStore: one JSON file per saved session in userData/sessions, search, delete
 │   └── preload.ts       # contextBridge exposing ghostAPI to renderer
 ├── src/
-│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding | documents)
+│   ├── App.tsx           # Root component, view routing (overlay | settings | help | compact | onboarding | documents | history)
 │   ├── main.tsx          # React entry point
 │   ├── types.ts          # All TypeScript interfaces (GhostAPI, Settings, ChatMessage, etc.)
 │   ├── components/
@@ -36,6 +37,7 @@ Ghost-AI-Local/
 │   │   ├── AudioCapture.tsx  # Audio UI: source/Speakers/Questions/Auto controls, transcript (renamable speakers), action buttons; wires the audio hooks
 │   │   ├── ChatInput.tsx     # Text input with send / Stop (Esc) and queued count
 │   │   ├── DocumentsPanel.tsx # Documents for retrieval: add / on-off / remove, semantic-search status
+│   │   ├── HistoryPanel.tsx  # Saved sessions: Save sessions toggle, search, open (transcript + chat), Export .md, delete
 │   │   ├── CompactView.tsx   # Compact mode card: latest suggestion, click-through, drag/expand toolbar
 │   │   ├── Markdown.tsx      # Reply rendering: GFM + highlighted code, no links/images/HTML
 │   │   ├── MessageBubble.tsx # Chat message: Markdown reply, collapsible reasoning, copy, Save .md on meeting notes
@@ -50,6 +52,7 @@ Ghost-AI-Local/
 │   │   ├── useTranscriptionQueue.ts # Serial Whisper queue (spoken order, drops oldest past 30)
 │   │   ├── useDiarization.ts # Speakers mode: embedding model + clustering → You / A / B / C / Other
 │   │   ├── useAutoSend.ts    # Auto timer: sends only the new text, retries when declined
+│   │   ├── useSessionHistory.ts # Saves the current session (debounced, after streaming) while saveSessions is on
 │   │   └── useWhisper.ts     # Whisper hook: IPC bridge, progress tracking, model/language, reload detection
 │   ├── lib/
 │   │   ├── compact.ts        # Compact window bounds (top-right anchored, kept in the work area; also used by electron/main.ts)
@@ -67,6 +70,7 @@ Ghost-AI-Local/
 │   │   ├── questions.ts      # isQuestion heuristic (EN/PT/ES) for Questions mode
 │   │   ├── screenshot.ts     # Native (Retina) capture size, downscale for full screenshots
 │   │   ├── segmenter.ts      # Energy VAD: closes speech segments on a ~700ms pause or max length
+│   │   ├── sessions.ts       # Session history: types, sanitizing, title, accent-insensitive search + snippets, Markdown export (also used by electron/)
 │   │   ├── settings.ts       # mergeSettings(): stored settings over DEFAULT_SETTINGS
 │   │   ├── shortcuts.ts      # Default/validated global shortcuts, key-event recording, labels (also used by electron/main.ts)
 │   │   ├── transcript.ts     # TranscriptSegment, merging, formatting with speaker names, echo retraction
@@ -129,6 +133,10 @@ npm run dist:win   # Build + package Windows NSIS
 | `ollama-chat-stream` | renderer->main | invoke | Streaming chat `{ requestId, ..., think? }`; resolves `{ success, content, thinking, aborted?, error? }` when the stream ends |
 | `ollama-abort` | renderer->main | invoke | Stop the streaming request with that `requestId` (Stop button / Esc) |
 | `ollama-status` | renderer->main | invoke | Connection + local chat models from one `/api/tags` (3s timeout, polled every 10s); cloud models filtered out, embedding-only models returned separately as `embeddingModels`, `error` for a non-local URL |
+| `sessions-save` | renderer->main | invoke | Create/replace a session file (validated, UUID ids only); sent only while `saveSessions` is on |
+| `sessions-status` | renderer->main | invoke | `{ encrypted }`: whether `safeStorage` encryption is available (without it nothing is saved) |
+| `sessions-search` | renderer->main | invoke | Session summaries, newest first; a query keeps those containing all its words (with a snippet) |
+| `sessions-get` / `sessions-delete` / `sessions-delete-all` | renderer->main | invoke | Open one session / delete one / delete all |
 | `docs-list` | renderer->main | invoke | The user's documents (metadata) |
 | `docs-add` | renderer->main | invoke | File picker (.pdf/.txt/.md) → extract, chunk, embed when an embedding model is installed; returns `{ added, errors }` |
 | `docs-remove` / `docs-set-enabled` | renderer->main | invoke | Remove a document / turn it on or off for retrieval |
@@ -188,6 +196,7 @@ interface Settings {
   hideFromScreenShare: boolean // default true: setContentProtection on the overlay
   onboardingCompleted: boolean // first-run setup done/skipped; true for anyone with older saved settings
   embeddingModel: string       // Ollama embedding model for documents (default 'nomic-embed-text'; keyword search when not installed)
+  saveSessions: boolean        // default false: keep transcript + chat + notes in session history (userData/sessions)
 }
 
 interface Preset {
@@ -255,6 +264,9 @@ Assistant replies render through `Markdown.tsx` (`react-markdown` + `remark-gfm`
 The user adds files in the Documents panel (title-bar paperclip). `electron/documents.ts` (`DocumentStore`) reads them in the main process — PDF text via `unpdf` (pdf.js without workers or network; externalized in `vite.config.mts`), .txt/.md as UTF-8; ≤15 MB, scanned PDFs without text are rejected — splits them with `chunkText` (`src/lib/rag.ts`: ~600-char excerpts; Markdown headings are hard boundaries and each excerpt is prefixed with its section title, so an excerpt — and its embedding — stays on one topic; mixed-topic excerpts made semantic scores indistinguishable in testing) and saves `userData/documents/index.json` (written atomically). When the `settings.embeddingModel` (default `nomic-embed-text`) is installed in the local Ollama, chunks are embedded through `/api/embed` (same local-URL/no-cloud checks as chat), with the model's task prefixes (`embeddingPrefix`: `search_document:` / `search_query:` for nomic-embed-text, the query instruction for mxbai-embed-large); otherwise documents are keyword-only and the panel shows the `ollama pull` command, plus "Index existing documents" once a model appears. Embedding-only models are listed separately by `ollama-status`, so they never show up as chat models.
 
 On every non-standalone request `useGhostAI` calls `docs-search` with the message plus the recent transcript tail and the documents' token share. **When all enabled documents fit in that share** (a CV plus a job description, typically) they are sent in full, in document order — a conversational question ("why are you a good fit?") often shares no words with a CV, so ranking would drop exactly what's needed. Otherwise excerpts are ranked (`rankChunks`), hybrid: BM25 over stopword-filtered, accent-free, plural-stripped tokens always; blended 70/30 with cosine similarity when the query and the document were embedded with the same model; near-duplicates of a better-ranked excerpt (word overlap ≥ 85%) are skipped so repeated text can't crowd out the rest. The top excerpts that fit `DOCUMENTS_SHARE` (25%) of the prompt budget go in as a system message (labeled by file name, "don't invent beyond them") before the chat history is fitted, and the reply records `sources`. Meeting notes (standalone) skip documents. A failed search never blocks the reply. Documents can be turned off without being removed.
+
+### Session history (opt-in)
+`settings.saveSessions` is **off by default**: nothing is written until the user turns on "Save sessions" (History panel, clock icon in the title bar) or Settings > Privacy > "Save session history". While on, `useSessionHistory` (called by `Overlay`) saves the current session — formatted transcript (speaker names applied), chat messages, model and preset name — through `sessions-save`, 1s after the last change and never while a reply is streaming. Messages are stored by `toSessionMessages` (`src/lib/sessions.ts`) without screenshots (`hadScreenshot: true` instead) or reasoning. A session gets its UUID on the first save; clearing the chat or the transcript starts a new one, so the saved session keeps what was cleared. `electron/sessions.ts` (`SessionStore`) writes one file per session to `userData/sessions/<uuid>.json` (atomic, `sanitizeSession` on save and load; ids must be UUIDs so they can't name other paths) and keeps them in memory for search. Search is case- and accent-insensitive, matches all words across title, transcript and messages, and returns a snippet cut from the original text. The History panel opens a session read-only (transcript + messages via `MessageBubble`, notes keep Save .md), exports it as Markdown (`sessionMarkdown`), deletes one, or deletes all (second click confirms). Turning saving off doesn't delete anything. **Encrypted:** each file is `{ version: 1, encrypted: <base64> }`, the session JSON encrypted with Electron's `safeStorage` (key "ghost-ai Safe Storage" in the macOS Keychain; DPAPI / secret store elsewhere). The cipher is created lazily on the first `sessions-*` call (after app ready); when `safeStorage.isEncryptionAvailable()` is false nothing is saved (`sessions-save` fails, `sessions-status` reports `encrypted: false` and the History panel warns). Plain-JSON files from before encryption are read and re-written encrypted; files that can't be decrypted (key gone) are skipped, not deleted — Delete all removes them too. The old `use-mock-keychain` switch was removed for this: with it the key was a fixed constant. Side effect: macOS may ask once for Keychain access to "ghost-ai Safe Storage" (Always Allow) — again after an Electron upgrade or on the first run of a packaged build, since the item's access list is tied to the binary's signature. The `safeStorage` calls are synchronous, so the main process waits while that prompt is open.
 
 ### Compact mode
 A small card (`CompactView`, 360×160) showing only the latest assistant reply (Markdown, following a streaming reply; the reasoning tail while thinking). `App` switches to the `compact` view from the title-bar button, the `compactMode` shortcut (`toggle-compact` from main) or the tray; an effect calls `set-compact-mode`, which saves the window bounds and applies `compactBounds` (top-right corner of the window, clamped to that display's work area) and hides the macOS traffic lights (they'd cover the card's toolbar, and the red one would quit mid-call), restoring both on exit. The card is click-through: it calls `setIgnoreMouse(true)` (forwarded, so mouse movement still reaches the page) and its toolbar (drag handle + expand) switches the mouse back on while hovered. The Overlay stays mounted underneath, so recording, Auto and Questions keep running.
@@ -408,7 +420,7 @@ Defaults (all configurable in Settings > Shortcuts; see "Configurable global sho
 
 ## Testing
 
-The project has a Vitest test suite (`npm test`). Currently **489 tests** across 38 test files under `src/__tests__/`.
+The project has a Vitest test suite (`npm test`). Currently **517 tests** across 42 test files under `src/__tests__/`.
 
 ### Running tests
 
@@ -436,6 +448,7 @@ npm run test:watch   # Watch mode
 - The overlay is hidden from screen sharing by default (`setContentProtection`)
 - Settings (incl. prompts) are stored only locally in `userData/settings.json`; `whisper-load` only accepts model ids from `WHISPER_MODELS`
 - Documents and their index stay in `userData/documents/`; embeddings come only from the local Ollama
+- Session history is opt-in (`saveSessions` default false), stays in `userData/sessions/` encrypted with `safeStorage`, and never stores screenshots
 - **Ollama must be local**: `isLocalOllamaUrl` (`src/lib/ollama.ts`) accepts only `localhost`/`*.localhost`, `127.0.0.0/8` and `::1` over http(s). The main process checks it on every Ollama request (`blockedOllamaRequest`), Settings won't save another URL, and `mergeSettings` resets a stored one. **Cloud models** (`remote_host` in `/api/tags`, or a `-cloud`/`:cloud` name) are proxied by the local Ollama to ollama.com, so they are hidden from the model list and refused by the main process
 - Permission handler restricted to media/microphone/screen only
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: false` (sandbox disabled only because Whisper needs main-process Node access)

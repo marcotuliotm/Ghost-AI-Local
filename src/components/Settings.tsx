@@ -555,6 +555,21 @@ export function SettingsPanel({
           <p className="text-[9px] text-ghost-text-muted opacity-60 mb-2">
             The overlay stays invisible in screen shares, recordings and screenshots taken by other apps (and by Ghost AI's own screenshots).
           </p>
+          <label className="flex items-center gap-2 mb-1 text-xs text-ghost-text cursor-pointer">
+            <input
+              type="checkbox"
+              checked={localSettings.saveSessions}
+              onChange={e => {
+                const saveSessions = e.target.checked
+                setLocalSettings(prev => ({ ...prev, saveSessions }))
+              }}
+              className="accent-ghost-accent"
+            />
+            Save session history
+          </label>
+          <p className="text-[9px] text-ghost-text-muted opacity-60 mb-2">
+            Off by default. When on, each session's transcript, chat and meeting notes are kept on this machine, encrypted with a key in your system keychain, and can be searched in History. Screenshots are never kept.
+          </p>
           <div className="bg-ghost-success/10 border border-ghost-success/20 rounded-lg p-3">
             <p className="text-[10px] text-ghost-success leading-relaxed">
               Ghost AI is 100% local and anonymous. No data is sent to external servers.
