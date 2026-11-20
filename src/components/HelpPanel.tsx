@@ -75,7 +75,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
                 </svg>
               }
               label="History"
-              description="Saved sessions — transcript, chat and meeting notes — with text search, Export .md and Delete. Saving is off by default: turn on Save sessions there or in Settings > Privacy. A session ends when you clear the chat or the transcript. Kept on this machine only, encrypted (key in the macOS Keychain); screenshots are never saved"
+              description="Saved sessions — transcript, chat and meeting notes — with text search, Export .md and Delete. Saving is off by default: turn on Save sessions there or in Settings > Privacy. Each session is titled by the local model after what the conversation is about. A session ends when you clear the chat or the transcript. Kept on this machine only, encrypted (key in the macOS Keychain); screenshots are never saved"
             />
             <ButtonRow
               icon={

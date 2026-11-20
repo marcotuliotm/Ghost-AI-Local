@@ -98,6 +98,7 @@ export function Overlay({
     transcript: currentTranscript,
     model: settings.selectedModel,
     preset: activePreset.name,
+    ollama: isConnected ? { baseUrl: settings.ollamaBaseUrl, contextLength: settings.contextLength } : null,
   })
   // Labels for the configured global shortcuts ("Cmd+Shift+S")
   const isMac = isMacPlatform()

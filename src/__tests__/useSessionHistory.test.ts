@@ -86,4 +86,70 @@ describe('useSessionHistory', () => {
     expect(last.transcript).toBe('You: after')
     expect(JSON.stringify(last)).not.toContain('first question')
   })
+
+  describe('generated titles', () => {
+    const ollama = { baseUrl: 'http://localhost:11434', contextLength: 8192 }
+    const long = (n: number) => `You: ${'budget talk '.repeat(n)}`.trim()
+    const titleCalls = () => vi.mocked(window.ghostAPI.ollamaChat).mock.calls
+
+    it('should title the session from the conversation and save it again', async () => {
+      vi.mocked(window.ghostAPI.ollamaChat).mockResolvedValueOnce({ success: true, message: { role: 'assistant', content: '"Marketing budget review."' } })
+      render({ transcript: long(20), ollama })
+      flush()
+      await act(async () => {})
+      expect(titleCalls()).toHaveLength(1)
+      expect(titleCalls()[0][0]).toMatchObject({ model: 'qwen3.5:latest', think: false, options: { num_ctx: 8192 } })
+      expect(titleCalls()[0][0].messages[1].content).toContain('Transcript:\nYou: budget talk')
+      const [quick, titled] = saved()
+      expect(quick.title).toMatch(/^budget talk/)
+      expect(titled).toMatchObject({ id: quick.id, title: 'Marketing budget review', transcript: quick.transcript })
+    })
+
+    it('should keep the generated title and renew it only when the text doubles', async () => {
+      vi.mocked(window.ghostAPI.ollamaChat).mockResolvedValueOnce({ success: true, message: { role: 'assistant', content: 'Budget review' } })
+      const { rerender } = render({ transcript: long(20), ollama })
+      flush()
+      await act(async () => {})
+      rerender({ ...base, ollama, transcript: long(25) })
+      flush()
+      await act(async () => {})
+      expect(titleCalls()).toHaveLength(1)
+      expect(saved().at(-1)!.title).toBe('Budget review')
+      vi.mocked(window.ghostAPI.ollamaChat).mockResolvedValueOnce({ success: true, message: { role: 'assistant', content: 'Budget and hiring plan' } })
+      rerender({ ...base, ollama, transcript: long(45) })
+      flush()
+      await act(async () => {})
+      expect(titleCalls()).toHaveLength(2)
+      expect(saved().at(-1)!.title).toBe('Budget and hiring plan')
+    })
+
+    it('should not ask for short sessions or while Ollama is unreachable', async () => {
+      const { rerender } = render({ transcript: 'You: hi', ollama })
+      flush()
+      rerender({ ...base, ollama: null, transcript: long(20) })
+      flush()
+      await act(async () => {})
+      expect(titleCalls()).toHaveLength(0)
+      expect(saved().at(-1)!.title).toMatch(/^budget talk/)
+    })
+
+    it('should keep the quick title when Ollama fails', async () => {
+      vi.mocked(window.ghostAPI.ollamaChat).mockResolvedValueOnce({ success: false, error: 'down' })
+      render({ messages: [msg({ content: 'How do I answer the budget question?' }), msg({ id: 'a', role: 'assistant', content: 'x'.repeat(200) })], ollama })
+      flush()
+      await act(async () => {})
+      expect(saved()).toHaveLength(1)
+      expect(saved()[0].title).toBe('How do I answer the budget question?')
+    })
+
+    it('should not save a title that arrives after saving was turned off', async () => {
+      let resolve!: (v: Awaited<ReturnType<typeof window.ghostAPI.ollamaChat>>) => void
+      vi.mocked(window.ghostAPI.ollamaChat).mockReturnValueOnce(new Promise(r => { resolve = r }))
+      const { rerender } = render({ transcript: long(20), ollama })
+      flush()
+      rerender({ ...base, enabled: false, ollama, transcript: long(20) })
+      await act(async () => { resolve({ success: true, message: { role: 'assistant', content: 'Late title' } }) })
+      expect(saved()).toHaveLength(1)
+    })
+  })
 })
