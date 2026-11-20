@@ -31,3 +31,34 @@ describe('SpeakerClusterer', () => {
     expect(c.assign(unit([0, 1]))).toBe('A')
   })
 })
+
+describe('SpeakerClusterer.merge', () => {
+  it('should fold one speaker into another so their next segments get the kept label', () => {
+    const c = new SpeakerClusterer()
+    expect(c.assign([1, 0, 0], 0.85)).toBe('A')
+    expect(c.assign([0, 1, 0], 0.85)).toBe('B')
+    expect(c.assign([0.6, 0.8, 0], 0.85)).toBe('C') // same person as B, split off
+    c.merge('C', 'B')
+    expect(c.speakerCount).toBe(2)
+    expect(c.assign([0.6, 0.8, 0], 0.85)).toBe('B')
+    expect(c.assign([0, 1, 0], 0.85)).toBe('B')
+  })
+
+  it('should never reuse a merged letter for a new speaker', () => {
+    const c = new SpeakerClusterer()
+    c.assign([1, 0, 0], 0.85)
+    c.assign([0, 1, 0], 0.85)
+    c.merge('B', 'A')
+    expect(c.assign([0, 0, 1], 0.85)).toBe('C')
+    c.reset()
+    expect(c.assign([0, 0, 1], 0.85)).toBe('A')
+  })
+
+  it('should ignore unknown labels', () => {
+    const c = new SpeakerClusterer()
+    c.assign([1, 0], 0.85)
+    c.merge('Other', 'A')
+    c.merge('A', 'A')
+    expect(c.speakerCount).toBe(1)
+  })
+})

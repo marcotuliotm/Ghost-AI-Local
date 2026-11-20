@@ -39,6 +39,28 @@ export function removeTrailingText(segments: TranscriptSegment[], speaker: strin
   return rest ? [...segments.slice(0, -1), { ...last, text: rest }] : segments.slice(0, -1)
 }
 
+// Relabel `from` as `to` (the same person), joining the paragraphs that become
+// consecutive.
+export function mergeSpeakers(segments: TranscriptSegment[], from: string, to: string): TranscriptSegment[] {
+  if (from === to) return segments
+  return segments.reduce<TranscriptSegment[]>(
+    (out, s) => appendToSegments(out, s.speaker === from ? to : s.speaker, s.text),
+    [],
+  )
+}
+
+/**
+ * The speaker a rename to `name` points at, when it is someone else: another
+ * label with that display name (case-insensitive) or that label itself
+ * ("B"). Never "You" (the mic channel) or unlabeled text.
+ */
+export function mergeTarget(segments: TranscriptSegment[], names: SpeakerNames, label: string, name: string): string | null {
+  const wanted = name.trim().toLowerCase()
+  if (!wanted) return null
+  const labels = [...new Set(segments.map(s => s.speaker))].filter(l => l && l !== label && l !== 'You')
+  return labels.find(l => displaySpeaker(l, names).toLowerCase() === wanted || l.toLowerCase() === wanted) ?? null
+}
+
 // Format labeled segments into text for Ollama / save / context. Labels give
 // the LLM useful turn-taking context ("You: ... / Maria: ...").
 export function formatSegments(segments: TranscriptSegment[], names: SpeakerNames = {}): string {
