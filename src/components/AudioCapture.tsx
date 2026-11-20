@@ -9,6 +9,8 @@ import {
   appendToSegments,
   displaySpeaker,
   formatSegments,
+  mergeSpeakers,
+  mergeTarget,
   removeTrailingText,
   transcriptSpeakers,
   type SpeakerNames,
@@ -80,8 +82,9 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
   const [audioSource, setAudioSource] = useState<AudioSource>('system')
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
   const [speakerNames, setSpeakerNames] = useState<SpeakerNames>({})
-  // Speaker label being renamed (inline input) and its draft name
-  const [renaming, setRenaming] = useState<{ label: string; draft: string } | null>(null)
+  // Speaker label being renamed, the segment whose chip was clicked (only that
+  // one turns into the input) and the draft name
+  const [renaming, setRenaming] = useState<{ label: string; index: number; draft: string } | null>(null)
   const [questionsMode, setQuestionsMode] = useState(false)
   const [isSavingTranscript, setIsSavingTranscript] = useState(false)
   // After Stop, offer to turn the transcript into meeting notes
@@ -108,7 +111,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
     status: whisperStatus, progress, progressMessage, error: whisperError, needsReload, loadModel, transcribe,
   } = useWhisper(settings.whisperModel, settings.transcriptionLanguage)
   const diarization = useDiarization(settings.speakerThreshold)
-  const { enabled: diarize, setEnabled: setDiarize, embedStatus, embedProgress, loadEmbed } = diarization
+  const { enabled: diarize, setEnabled: setDiarize, embedStatus, embedProgress, loadEmbed, merge: mergeSpeaker } = diarization
 
   // Derived plain-text transcript (speaker names applied) for consumers
   const transcriptText = useMemo(() => formatSegments(segments, speakerNames), [segments, speakerNames])
@@ -265,10 +268,25 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
     resetTranscript()
   }, [resetTranscript])
 
-  // Rename a speaker (A → "Maria"); an empty name restores the label
+  // Rename a speaker (A → "Maria"); an empty name restores the label. A name
+  // that another speaker already has (or their letter) merges the two: one
+  // person the voice clustering split in two.
   const commitRename = useCallback(() => {
     if (!renaming) return
     const name = renaming.draft.trim().replace(/[:\n]/g, ' ').trim().slice(0, 40)
+    const target = mergeTarget(segmentsRef.current, namesRef.current, renaming.label, name)
+    if (target) {
+      const from = renaming.label
+      updateSegments(segs => mergeSpeakers(segs, from, target))
+      mergeSpeaker(from, target)
+      setSpeakerNames(prev => {
+        const next = { ...prev }
+        delete next[from]
+        return next
+      })
+      setRenaming(null)
+      return
+    }
     setSpeakerNames(prev => {
       const next = { ...prev }
       if (name && name !== renaming.label) next[renaming.label] = name
@@ -276,7 +294,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
       return next
     })
     setRenaming(null)
-  }, [renaming])
+  }, [renaming, updateSegments, mergeSpeaker])
 
   const handleSaveTranscript = useCallback(async () => {
     if (!transcriptText.trim() || isSavingTranscript) return
@@ -572,12 +590,12 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                 {segments.map((seg, i) => (
                   seg.speaker ? (
                     <p key={i} className="text-callout leading-relaxed">
-                      {renaming?.label === seg.speaker ? (
+                      {renaming?.index === i && renaming.label === seg.speaker ? (
                         <input
                           autoFocus
                           aria-label={`Name for speaker ${seg.speaker}`}
                           value={renaming.draft}
-                          onChange={e => setRenaming({ label: seg.speaker, draft: e.target.value })}
+                          onChange={e => setRenaming({ label: seg.speaker, index: i, draft: e.target.value })}
                           onKeyDown={e => {
                             if (e.key === 'Enter') commitRename()
                             if (e.key === 'Escape') setRenaming(null)
@@ -588,7 +606,7 @@ export function AudioCapture({ onTranscription, onSummarize, onSummarizePT, onNo
                         />
                       ) : isRenamable(seg.speaker) ? (
                         <button
-                          onClick={() => setRenaming({ label: seg.speaker, draft: speakerNames[seg.speaker] ?? '' })}
+                          onClick={() => setRenaming({ label: seg.speaker, index: i, draft: speakerNames[seg.speaker] ?? '' })}
                           className={`inline-block px-1 rounded text-footnote font-medium mr-1 align-middle hover:ring-1 hover:ring-current ${speakerChipClass(seg.speaker)}`}
                           title="Click to rename this speaker"
                         >

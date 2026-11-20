@@ -189,7 +189,7 @@ export function HelpPanel({ onBack, shortcuts = DEFAULT_SHORTCUTS, onRunSetup }:
             <ButtonRow
               icon={<span className="px-1.5 py-0.5 rounded-full text-footnote bg-ghost-accent/20 text-ghost-accent">Speakers</span>}
               label="Speakers (diarization)"
-              description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. Click a label to rename it (e.g. A → Maria); the name is used in suggestions, notes and saved files. First use downloads a small speaker model."
+              description="Separates who is talking. Your mic is labeled 'You'; the other side (system audio) is split by voice into Speaker A / B / C using a local model. Click a label to rename it (e.g. A → Maria); the name is used in suggestions, notes and saved files. If one person shows up as two letters, give the second the same name (or the letter of the first) to merge them — their next words go to the same speaker. First use downloads a small speaker model."
             />
             <ButtonRow
               icon={

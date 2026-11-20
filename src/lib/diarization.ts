@@ -22,6 +22,8 @@ function dot(a: number[], b: number[]): number {
  */
 export class SpeakerClusterer {
   private centroids: { label: string; centroid: number[]; count: number }[] = []
+  // Letters are never reused, even after a merge removed one
+  private nextIndex = 0
 
   assign(embedding: number[] | null, threshold = DEFAULT_SPEAKER_THRESHOLD): string {
     if (!embedding) return 'Other'
@@ -42,9 +44,27 @@ export class SpeakerClusterer {
       c.count = n + 1
       return c.label
     }
-    const label = String.fromCharCode(65 + this.centroids.length) // A, B, C, ...
+    const label = String.fromCharCode(65 + this.nextIndex++) // A, B, C, ...
     this.centroids.push({ label, centroid: embedding.slice(), count: 1 })
     return label
+  }
+
+  /**
+   * The user says `from` and `to` are the same person: fold `from`'s voice into
+   * `to` (count-weighted mean, re-normalized), so their next segments get `to`.
+   */
+  merge(from: string, to: string) {
+    const src = this.centroids.find(c => c.label === from)
+    const dst = this.centroids.find(c => c.label === to)
+    if (!src || !dst || src === dst) return
+    const total = src.count + dst.count
+    const merged = dst.centroid.map((v, j) => (v * dst.count + (src.centroid[j] ?? 0) * src.count) / total)
+    let norm = 0
+    for (const v of merged) norm += v * v
+    norm = Math.sqrt(norm) || 1
+    dst.centroid = merged.map(v => v / norm)
+    dst.count = total
+    this.centroids = this.centroids.filter(c => c !== src)
   }
 
   get speakerCount(): number {
@@ -53,5 +73,6 @@ export class SpeakerClusterer {
 
   reset() {
     this.centroids = []
+    this.nextIndex = 0
   }
 }
