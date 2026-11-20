@@ -78,6 +78,62 @@ export function sessionTitle(messages: SessionMessage[], transcript: string): st
   return 'Untitled session'
 }
 
+// Below this much text the quick title above is kept; past it Ollama names the session
+export const AI_TITLE_MIN_CHARS = 120
+const TITLE_SOURCE_CHARS = 3000
+
+// How much text a session holds (decides when its title is (re)generated)
+export function sessionContentSize(messages: SessionMessage[], transcript: string): number {
+  return transcript.trim().length + messages.reduce((n, m) => n + m.content.trim().length, 0)
+}
+
+// A title is generated once the session has enough text, then again each time
+// its text doubles, so it follows the conversation without asking Ollama on every save
+export function shouldRetitle(size: number, lastAttemptSize: number): boolean {
+  return size >= AI_TITLE_MIN_CHARS && (lastAttemptSize === 0 || size >= lastAttemptSize * 2)
+}
+
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const half = Math.floor((max - 3) / 2)
+  return `${text.slice(0, half)}\n…\n${text.slice(-half)}`
+}
+
+/**
+ * What the title model reads: the latest meeting notes when there are any
+ * (they already summarize the session), else the user's questions and the
+ * transcript (or the first answer when there's no transcript). Long text keeps
+ * its beginning and its end.
+ */
+export function titleSource(messages: SessionMessage[], transcript: string, maxChars = TITLE_SOURCE_CHARS): string {
+  const notes = [...messages].reverse().find(m => m.kind === 'notes')
+  if (notes) return clip(`Meeting notes:\n${notes.content.trim()}`, maxChars)
+  const parts: string[] = []
+  const asked = messages.filter(m => m.role === 'user').map(m => `- ${shorten(m.content, 200)}`)
+  if (asked.length) parts.push(`Questions asked:\n${asked.join('\n')}`)
+  if (transcript.trim()) {
+    parts.push(`Transcript:\n${transcript.trim()}`)
+  } else {
+    const answer = messages.find(m => m.role === 'assistant')
+    if (answer) parts.push(`Answer:\n${shorten(answer.content, 400)}`)
+  }
+  return clip(parts.join('\n\n'), maxChars)
+}
+
+// The model's reply as a title: first line, no "Title:" prefix, Markdown,
+// quotes or final period ('' if unusable)
+export function cleanTitle(raw: string): string {
+  const line = raw.split('\n').map(l => l.trim()).find(Boolean) ?? ''
+  const title = line
+    .replace(/^#+\s*/, '')
+    .replace(/^(title|t[ií]tulo)\s*:\s*/i, '')
+    .replace(/[*_`]+/g, '')
+    .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '')
+    .replace(/[.。]+$/, '')
+    .trim()
+  return title.length >= 3 ? shorten(title, TITLE_CHARS) : ''
+}
+
 export function hasSessionContent(messages: ChatMessage[], transcript: string): boolean {
   return Boolean(transcript.trim()) || toSessionMessages(messages).length > 0
 }

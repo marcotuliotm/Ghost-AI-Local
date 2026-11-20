@@ -1,4 +1,5 @@
 import type { Settings } from '../types'
+import { cleanTitle } from './sessions'
 
 // Date/time stamps used in saved file names and headers: 2026-05-25, 14h30
 export function fileStamp(now: Date): { date: string; time: string } {
@@ -46,6 +47,37 @@ export async function suggestFilename(
     })
     if (!result.success || !result.message?.content) return null
     return sanitizeFilename(result.message.content) || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Ask Ollama for a short title saying what a session is about, in the
+ * conversation's language (`source` from `titleSource`). Null when Ollama is
+ * unreachable or the reply is unusable, so the session keeps its quick title.
+ */
+export async function suggestSessionTitle(
+  ollama: { model: string; baseUrl: string; contextLength: number },
+  source: string,
+): Promise<string | null> {
+  try {
+    const result = await window.ghostAPI.ollamaChat({
+      model: ollama.model,
+      baseUrl: ollama.baseUrl,
+      // Same window as the chat, so Ollama doesn't reload the model for this call
+      options: { num_ctx: ollama.contextLength },
+      think: false,
+      messages: [
+        {
+          role: 'system',
+          content: 'Write a short title (3-7 words) saying what this conversation is about, in the same language as the conversation. Reply with ONLY the title: no quotes, no prefix, no final period.',
+        },
+        { role: 'user', content: source },
+      ],
+    })
+    if (!result.success || !result.message?.content) return null
+    return cleanTitle(result.message.content) || null
   } catch {
     return null
   }

@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
+  AI_TITLE_MIN_CHARS,
+  cleanTitle,
   foldText,
   hasSessionContent,
   isValidSessionId,
   sanitizeSession,
   searchSessions,
+  sessionContentSize,
   sessionMarkdown,
   sessionTitle,
+  shouldRetitle,
+  titleSource,
   toSessionMessages,
   type Session,
 } from '../lib/sessions'
@@ -63,6 +68,44 @@ describe('sessionTitle', () => {
     expect(sessionTitle([], 'Maria: let us start with the budget\nYou: ok')).toBe('let us start with the budget')
     expect(sessionTitle([], '')).toBe('Untitled session')
     expect(sessionTitle([{ role: 'user', content: 'a'.repeat(100), timestamp: 0 }], '')).toHaveLength(60)
+  })
+})
+
+describe('generated titles', () => {
+  const user = (content: string) => ({ role: 'user' as const, content, timestamp: 0 })
+  const answer = (content: string, kind?: 'notes') => ({ role: 'assistant' as const, content, timestamp: 0, ...(kind ? { kind } : {}) })
+
+  it('should ask for a title once there is enough text, then each time it doubles', () => {
+    expect(shouldRetitle(AI_TITLE_MIN_CHARS - 1, 0)).toBe(false)
+    expect(shouldRetitle(AI_TITLE_MIN_CHARS, 0)).toBe(true)
+    expect(shouldRetitle(300, 200)).toBe(false)
+    expect(shouldRetitle(400, 200)).toBe(true)
+    expect(sessionContentSize([user(' ab '), answer('cde')], '  You: hi ')).toBe(12)
+  })
+
+  it('should read the latest meeting notes when there are any', () => {
+    const source = titleSource([user('q'), answer('old notes', 'notes'), answer('## Summary\nBudget review', 'notes')], 'You: hi')
+    expect(source).toBe('Meeting notes:\n## Summary\nBudget review')
+  })
+
+  it('should read the questions and the transcript, or the first answer without one', () => {
+    expect(titleSource([user('How do I\nanswer?'), answer('Say yes')], 'Maria: hello')).toBe('Questions asked:\n- How do I answer?\n\nTranscript:\nMaria: hello')
+    expect(titleSource([user('What is on screen?'), answer('A login form')], '')).toBe('Questions asked:\n- What is on screen?\n\nAnswer:\nA login form')
+  })
+
+  it('should keep the beginning and the end of long text', () => {
+    const source = titleSource([], `You: START ${'x'.repeat(5000)} END`, 1000)
+    expect(source.length).toBeLessThanOrEqual(1000)
+    expect(source).toContain('START')
+    expect(source).toContain('END')
+  })
+
+  it('should clean the model reply into a title', () => {
+    expect(cleanTitle('"Revisão do orçamento de marketing."')).toBe('Revisão do orçamento de marketing')
+    expect(cleanTitle('\nTitle: **System design interview**\nextra')).toBe('System design interview')
+    expect(cleanTitle('# Título: Entrevista técnica')).toBe('Entrevista técnica')
+    expect(cleanTitle('  ')).toBe('')
+    expect(cleanTitle('a'.repeat(100))).toHaveLength(60)
   })
 })
 
