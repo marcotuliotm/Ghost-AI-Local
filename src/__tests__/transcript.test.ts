@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendToSegments, displaySpeaker, formatSegments, removeTrailingText, transcriptSpeakers } from '../lib/transcript'
+import { appendToSegments, displaySpeaker, formatSegments, mergeSpeakers, mergeTarget, removeTrailingText, transcriptSpeakers } from '../lib/transcript'
 
 describe('transcript segments', () => {
   it('should merge consecutive pieces from the same speaker', () => {
@@ -31,5 +31,34 @@ describe('transcript segments', () => {
     expect(removeTrailingText([segs[0], { speaker: 'You', text: 'Ship it Friday.' }], 'You', 'Ship it Friday.')).toEqual([segs[0]])
     expect(removeTrailingText(segs, 'A', 'Ship it Friday.')).toBe(segs) // not the last segment's speaker
     expect(removeTrailingText(segs, 'You', 'something else')).toBe(segs)
+  })
+})
+
+describe('merging speakers', () => {
+  const segs = [
+    { speaker: 'A', text: 'Hi.' },
+    { speaker: 'B', text: 'Hello.' },
+    { speaker: 'C', text: 'I mean,' },
+    { speaker: 'B', text: 'welcome.' },
+    { speaker: 'You', text: 'Thanks.' },
+  ]
+
+  it('should relabel and join the paragraphs that become consecutive', () => {
+    expect(mergeSpeakers(segs, 'C', 'B')).toEqual([
+      { speaker: 'A', text: 'Hi.' },
+      { speaker: 'B', text: 'Hello. I mean, welcome.' },
+      { speaker: 'You', text: 'Thanks.' },
+    ])
+    expect(mergeSpeakers(segs, 'B', 'B')).toBe(segs)
+  })
+
+  it('should find the speaker a rename points at by name or by letter', () => {
+    const names = { B: 'Maria' }
+    expect(mergeTarget(segs, names, 'C', ' maria ')).toBe('B')
+    expect(mergeTarget(segs, names, 'C', 'a')).toBe('A')
+    expect(mergeTarget(segs, names, 'C', 'Joao')).toBeNull()
+    expect(mergeTarget(segs, names, 'C', 'You')).toBeNull() // never the mic channel
+    expect(mergeTarget(segs, names, 'B', 'Maria')).toBeNull() // its own name
+    expect(mergeTarget(segs, names, 'C', '')).toBeNull()
   })
 })

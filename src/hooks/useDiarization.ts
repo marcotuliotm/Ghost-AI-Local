@@ -73,6 +73,8 @@ export function useDiarization(speakerThreshold: number | undefined) {
   }, [])
 
   const reset = useCallback(() => clustererRef.current.reset(), [])
+  // Two labels are one person (the user gave them the same name)
+  const merge = useCallback((from: string, to: string) => clustererRef.current.merge(from, to), [])
 
-  return { enabled, setEnabled, embedStatus, embedProgress, loadEmbed, labelFor, reset }
+  return { enabled, setEnabled, embedStatus, embedProgress, loadEmbed, labelFor, reset, merge }
 }

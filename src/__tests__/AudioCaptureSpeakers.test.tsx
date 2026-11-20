@@ -95,6 +95,88 @@ describe('AudioCapture speakers, questions and echo', () => {
     expect(screen.getByRole('button', { name: 'A' })).toBeInTheDocument()
   })
 
+  it('should rename a speaker who spoke more than once, even while they keep talking', async () => {
+    window.ghostAPI.whisperTranscribe = vi.fn()
+      .mockResolvedValueOnce({ success: true, text: 'Hi, I am the host.' })
+      .mockResolvedValueOnce({ success: true, text: 'Hello there.' })
+      .mockResolvedValueOnce({ success: true, text: 'Let us begin.' })
+      .mockResolvedValueOnce({ success: true, text: 'First item is the budget.' })
+    window.ghostAPI.embedSpeaker = vi.fn()
+      .mockResolvedValueOnce({ success: true, embedding: [1, 0] })
+      .mockResolvedValueOnce({ success: true, embedding: [0, 1] })
+      .mockResolvedValueOnce({ success: true, embedding: [1, 0] })
+      .mockResolvedValueOnce({ success: true, embedding: [1, 0] })
+    const onTranscriptChange = vi.fn()
+    render(<AudioCapture onTranscription={vi.fn()} onSummarize={vi.fn()} onSummarizePT={vi.fn()} onTranscriptChange={onTranscriptChange} isConnected settings={settings} />)
+    await startRecording('System')
+    const system = feeder(0)
+    phrase(system)
+    await screen.findByText('Hi, I am the host.')
+    phrase(system)
+    await screen.findByText('Hello there.')
+    phrase(system)
+    await screen.findByText('Let us begin.')
+
+    // A has two chips; clicking the first opens one input, and it stays open
+    fireEvent.click(screen.getAllByRole('button', { name: 'A' })[0])
+    const input = screen.getByLabelText('Name for speaker A')
+    expect(screen.getAllByLabelText('Name for speaker A')).toHaveLength(1)
+    fireEvent.change(input, { target: { value: 'Ana' } })
+
+    // A keeps talking while the name is being typed
+    phrase(system)
+    await screen.findByText(/First item is the budget/)
+    expect(screen.getByLabelText('Name for speaker A')).toHaveValue('Ana')
+
+    fireEvent.keyDown(screen.getByLabelText('Name for speaker A'), { key: 'Enter' })
+    expect(screen.getAllByRole('button', { name: 'Ana' })).toHaveLength(2)
+    expect(onTranscriptChange).toHaveBeenLastCalledWith(
+      'Ana: Hi, I am the host.\nB: Hello there.\nAna: Let us begin. First item is the budget.', ['Ana', 'B'])
+  })
+
+  it('should merge two speakers when one gets the name of the other, and keep them merged', async () => {
+    window.ghostAPI.whisperTranscribe = vi.fn()
+      .mockResolvedValueOnce({ success: true, text: 'Welcome.' })
+      .mockResolvedValueOnce({ success: true, text: 'Thanks for having me.' })
+      .mockResolvedValueOnce({ success: true, text: 'It is great to be here.' })
+      .mockResolvedValueOnce({ success: true, text: 'Shall we start?' })
+      .mockResolvedValueOnce({ success: true, text: 'Sure, go ahead.' })
+    // B and C are the same guest, split by the voice clustering
+    window.ghostAPI.embedSpeaker = vi.fn()
+      .mockResolvedValueOnce({ success: true, embedding: [1, 0, 0] })
+      .mockResolvedValueOnce({ success: true, embedding: [0, 1, 0] })
+      .mockResolvedValueOnce({ success: true, embedding: [0, 0.6, 0.8] })
+      .mockResolvedValueOnce({ success: true, embedding: [1, 0, 0] })
+      .mockResolvedValueOnce({ success: true, embedding: [0, 0.6, 0.8] })
+    const onTranscriptChange = vi.fn()
+    render(<AudioCapture onTranscription={vi.fn()} onSummarize={vi.fn()} onSummarizePT={vi.fn()} onTranscriptChange={onTranscriptChange} isConnected settings={settings} />)
+    await startRecording('System')
+    const system = feeder(0)
+    for (const text of ['Welcome.', 'Thanks for having me.', 'It is great to be here.', 'Shall we start?']) {
+      phrase(system)
+      await screen.findByText(text)
+    }
+    expect(screen.getByRole('button', { name: 'C' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'B' }))
+    fireEvent.change(screen.getByLabelText('Name for speaker B'), { target: { value: 'Maria' } })
+    fireEvent.keyDown(screen.getByLabelText('Name for speaker B'), { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: 'C' }))
+    fireEvent.change(screen.getByLabelText('Name for speaker C'), { target: { value: 'maria' } })
+    fireEvent.keyDown(screen.getByLabelText('Name for speaker C'), { key: 'Enter' })
+
+    expect(screen.queryByRole('button', { name: 'C' })).not.toBeInTheDocument()
+    expect(screen.getByText('Thanks for having me. It is great to be here.')).toBeInTheDocument()
+    expect(onTranscriptChange).toHaveBeenLastCalledWith(
+      'A: Welcome.\nMaria: Thanks for having me. It is great to be here.\nA: Shall we start?', ['A', 'Maria'])
+
+    // The guest's next words go to Maria, not to C
+    phrase(system)
+    await screen.findByText('Sure, go ahead.')
+    expect(onTranscriptChange).toHaveBeenLastCalledWith(
+      'A: Welcome.\nMaria: Thanks for having me. It is great to be here.\nA: Shall we start?\nMaria: Sure, go ahead.', ['A', 'Maria'])
+  })
+
   it('should cancel a rename with Esc', async () => {
     window.ghostAPI.whisperTranscribe = vi.fn().mockResolvedValue({ success: true, text: 'Hello from the call.' })
     window.ghostAPI.embedSpeaker = vi.fn().mockResolvedValue({ success: true, embedding: [1, 0] })
